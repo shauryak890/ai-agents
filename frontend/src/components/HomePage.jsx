@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
+import axios from 'axios';
 import { saveAs } from 'file-saver';
 import JSZip from 'jszip';
-import axios from 'axios';
 
 // Import components
 import PromptInput from './PromptInput';
@@ -10,7 +10,9 @@ import AgentStatusVisualizer from './AgentStatusVisualizer';
 import LogViewer from './LogViewer';
 import CodeViewer from './CodeViewer';
 import DeploymentPanel from './DeploymentPanel';
-import SubscriptionPanel from './SubscriptionPanel';
+import LivePreview from './LivePreview';
+import Navbar from './Navbar';
+import ValidationResults from './ValidationResults';
 
 const HomePage = () => {
   // State
@@ -19,8 +21,18 @@ const HomePage = () => {
   const [jobId, setJobId] = useState(null);
   const [logs, setLogs] = useState([]);
   const [results, setResults] = useState(null);
-  const [activeTab, setActiveTab] = useState('frontend');
+  const [activeTab, setActiveTab] = useState('code'); // For code/preview tabs
+  const [activeFileTab, setActiveFileTab] = useState('frontend'); // For file selection
   const [activeFile, setActiveFile] = useState(null);
+  
+  // Agent icons
+  const agentIcons = {
+    planner: '🧠',
+    frontend: '🎨',
+    backend: '⚙️',
+    tester: '🧪',
+    deployment: '🚀'
+  };
   const [agentStatuses, setAgentStatuses] = useState({
     planner: 'pending',
     frontend: 'pending',
@@ -128,10 +140,19 @@ const HomePage = () => {
     };
   }, [jobId, isProcessing]);
   
+  // Effect to check validation results and switch to validation tab when errors are found
+  useEffect(() => {
+    if (results?.validation && results.validation.error_count > 0) {
+      // Auto-switch to validation tab if there are errors
+      setActiveTab('validation');
+    }
+  }, [results]);
+  
   // Handle form submission
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!prompt.trim()) return;
+  const handleSubmit = async (promptValue) => {
+    // Use the prompt from state or the argument
+    const inputPrompt = promptValue || prompt;
+    if (!inputPrompt.trim()) return;
     
     setIsProcessing(true);
     setResults(null);
@@ -146,7 +167,7 @@ const HomePage = () => {
     });
     
     try {
-      const response = await axios.post('/api/generate', { prompt });
+      const response = await axios.post('/api/generate', { prompt: inputPrompt });
       setJobId(response.data.job_id);
       
       // Mark planner as running initially
@@ -280,6 +301,7 @@ const HomePage = () => {
   // Handle file selection in the code viewer
   const handleFileSelect = (type, category, name, content) => {
     setActiveFile({ type, category, name, content });
+    setActiveFileTab(type); // Update the active file tab when selecting a file
   };
   
   // Get file extension for syntax highlighting
@@ -297,31 +319,34 @@ const HomePage = () => {
     if (fileName.endsWith('.env')) return 'bash';
     return 'text';
   };
-  
   // Preview URL for generated app (simulated)
   const getPreviewUrl = () => {
+    // This is used for the external preview button
+    // For the embedded preview, we use the LivePreview component
     return `http://localhost:3000/preview?jobId=${jobId}`;
   };
-  
+
+  // Check if preview is available
+  const isPreviewAvailable = () => {
+    return jobId !== null && results !== null;
+  };
+
   // Generate a code preview list from results
   const getCodeFiles = (agentType) => {
     if (!results || !results[agentType]) return [];
-    
+    const agentResult = results[agentType];
     const files = [];
-    const agentData = results[agentType];
     
-    // Process different categories of files
-    Object.entries(agentData).forEach(([category, items]) => {
-      if (typeof items === 'object' && !Array.isArray(items)) {
-        Object.entries(items).forEach(([name, content]) => {
-          if (typeof content === 'string') {
-            files.push({
-              type: agentType,
-              category,
-              name,
-              content
-            });
-          }
+    // Process all file categories for the agent
+    Object.keys(agentResult).forEach(category => {
+      if (typeof agentResult[category] === 'object') {
+        Object.keys(agentResult[category]).forEach(fileName => {
+          files.push({
+            name: fileName,
+            content: agentResult[category][fileName],
+            category: category,
+            type: agentType
+          });
         });
       }
     });
@@ -329,69 +354,109 @@ const HomePage = () => {
     return files;
   };
 
-  // Agent icons
-  const agentIcons = {
-    planner: '🧠',
-    frontend: '🎨',
-    backend: '⚙️',
-    tester: '🧪',
-    deployment: '🚀'
-  };
-  
   return (
-    <div className="container mx-auto px-4 py-8">
-      {/* Header */}
-      <motion.div 
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="text-center mb-8"
-      >
-        <h1 className="text-5xl font-bold text-white mb-4">
-          🤖 AI Agent App Builder
-        </h1>
-        <p className="text-xl text-gray-300">
-          Transform your ideas into production-ready apps with AI agents
-        </p>
-      </motion.div>
-
-      {/* Prompt Input Area */}
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="glass-effect rounded-2xl p-6 mb-8"
-      >
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-white text-lg font-semibold mb-2">
-              Describe your app idea:
-            </label>
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder="e.g., I want a movie recommendation app using TMDB API with user ratings and favorites..."
-              className="w-full h-32 p-4 bg-white bg-opacity-10 border border-white border-opacity-20 rounded-xl text-white placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-400"
-              disabled={isProcessing}
-            />
-          </div>
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            type="submit"
-            disabled={isProcessing || !prompt.trim()}
-            className="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold py-4 px-8 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg transition-all duration-300"
+    <div className="min-h-screen bg-gray-900">
+      {/* Fixed Navbar */}
+      <Navbar />
+      
+      <div className="container mx-auto px-4 pt-24 pb-16">  {/* Added pt-24 to account for navbar height */}
+      
+      {/* Main welcome section with app description */}
+      {!isProcessing && !results && (
+        <div className="max-w-5xl mx-auto text-center mb-12">
+          <motion.h1 
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="text-4xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-600 mb-4"
           >
-            {isProcessing ? (
-              <span className="flex items-center justify-center">
-                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white mr-3"></div>
-                Agents Working...
-              </span>
-            ) : (
-              '🚀 Launch AI Agents'
-            )}
-          </motion.button>
-        </form>
-      </motion.div>
+            Build Apps with AI Agents
+          </motion.h1>
+          <motion.p 
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="text-xl text-gray-300 max-w-3xl mx-auto mb-10"
+          >
+            Describe your app idea, and our specialized AI agents will build a complete, functional application for you in minutes.
+          </motion.p>
+          
+          {/* Single Prompt Input */}
+          <motion.div 
+            initial={{opacity: 0, y: 20}}
+            animate={{opacity: 1, y: 0}}
+            className="max-w-4xl mx-auto mb-12"
+          >
+            <PromptInput 
+              value={prompt}
+              onChange={setPrompt}
+              onSubmit={handleSubmit}
+              isProcessing={isProcessing}
+            />
+          </motion.div>
+          
+          {/* Live Preview */}
+          <motion.div 
+            initial={{opacity: 0, y: 20}}
+            animate={{opacity: 1, y: 0}}
+            transition={{ delay: 0.2 }}
+            className="mb-12 bg-gray-800 rounded-lg overflow-hidden shadow-2xl" 
+            style={{ height: '400px' }}
+          >
+            <h3 className="bg-gray-700 p-3 text-lg font-medium text-white flex items-center">
+              <span className="inline-block w-3 h-3 rounded-full bg-green-400 mr-2"></span>
+              Live Preview
+            </h3>
+            <LivePreview results={null} isVisible={true} />
+          </motion.div>
 
+          {/* Examples Section */}
+          <motion.h2 
+            initial={{opacity: 0}}
+            animate={{opacity: 1}}
+            transition={{ delay: 0.3 }}
+            className="text-2xl font-bold text-white mb-6"
+          >
+            Start with a Template
+          </motion.h2>
+          
+          <motion.div 
+            initial={{opacity: 0, y: 20}}
+            animate={{opacity: 1, y: 0}}
+            transition={{ delay: 0.4 }}
+            className="grid md:grid-cols-3 gap-6">
+            {[
+              {
+                emoji: "📊",
+                title: "Dashboard App",
+                description: "Create a data dashboard with charts and filters"
+              },
+              {
+                emoji: "📝",
+                title: "Todo Application",
+                description: "Build a task manager with categories and due dates"
+              },
+              {
+                emoji: "🛒",
+                title: "E-commerce Store",
+                description: "Design a simple online store with product listings"
+              }
+            ].map((item, i) => (
+              <motion.div
+                key={i}
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.98 }}
+                className="bg-gray-800 bg-opacity-50 backdrop-blur-sm p-6 rounded-xl border border-gray-700 cursor-pointer"
+                onClick={() => setPrompt(item.description)}
+              >
+                <div className="text-3xl mb-3">{item.emoji}</div>
+                <h3 className="text-xl font-medium text-white mb-2">{item.title}</h3>
+                <p className="text-gray-400">{item.description}</p>
+              </motion.div>
+            ))}
+          </motion.div>
+        </div>
+      )}
+      
       {/* Main content area (only visible when processing or when results are available) */}
       {(isProcessing || results) && (
         <div className="grid lg:grid-cols-3 gap-8">
@@ -441,9 +506,6 @@ const HomePage = () => {
               ))}
             </div>
           </motion.div>
-          
-          {/* Agent Logs */}
-          <LogViewer logs={logs} />
         </div>
       )}
       
@@ -518,10 +580,44 @@ const HomePage = () => {
             </motion.button>
           </div>
           
+          {/* Tabs for Code and Preview */}
+          <div className="mb-4">
+            <div className="flex border-b border-gray-700">
+              <button 
+                className={`py-2 px-4 ${activeTab === 'code' ? 'text-blue-400 border-b-2 border-blue-400 font-medium' : 'text-gray-400 hover:text-gray-300'}`}
+                onClick={() => setActiveTab('code')}
+              >
+                Code
+              </button>
+              <button 
+                className={`py-2 px-4 ${activeTab === 'preview' ? 'text-blue-400 border-b-2 border-blue-400 font-medium' : 'text-gray-400 hover:text-gray-300'}`}
+                onClick={() => setActiveTab('preview')}
+              >
+                Live Preview
+              </button>
+              <button 
+                className={`py-2 px-4 ${activeTab === 'validation' ? 'text-blue-400 border-b-2 border-blue-400 font-medium' : 'text-gray-400 hover:text-gray-300'}`}
+                onClick={() => setActiveTab('validation')}
+              >
+                Validation {results?.validation?.error_count > 0 && <span className="ml-1 px-2 py-1 text-xs bg-red-500 text-white rounded-full">{results.validation.error_count}</span>}
+              </button>
+            </div>
+          </div>
+          
           {/* Code Preview */}
-          <CodeViewer 
-            results={results} 
-          />
+          <div className={activeTab === 'code' ? 'block' : 'hidden'}>
+            <CodeViewer results={results} />
+          </div>
+          
+          {/* Live Preview */}
+          <div className={activeTab === 'preview' ? 'block' : 'hidden'} style={{ height: '600px' }}>
+            <LivePreview results={results} isVisible={activeTab === 'preview'} />
+          </div>
+          
+          {/* Validation Results */}
+          <div className={activeTab === 'validation' ? 'block' : 'hidden'}>
+            <ValidationResults validation={results?.validation} jobId={jobId} />
+          </div>
         </motion.div>
       )}
 
@@ -534,21 +630,15 @@ const HomePage = () => {
         >
           <DeploymentPanel 
             isGenerationComplete={results !== null}
-            onPreview={() => window.open(getPreviewUrl(), '_blank')}
-            onDeploy={() => alert('Deployment simulation started!')}
+            onPreview={() => {
+              alert('This is a simulated preview. In a production environment, this would open the deployed application. Currently, the app exists only as generated code that can be downloaded.');
+            }}
+            onDeploy={() => alert('Deployment simulation started! In a production environment, this would deploy your application to a hosting service.')}
           />
         </motion.div>
       )}
 
-      {/* Subscription Panel - Always visible */}
-      <motion.div
-        initial={{opacity: 0, y: 20}}
-        animate={{opacity: 1, y: 0}}
-        transition={{delay: 0.3}}
-        className="mt-8"
-      >
-        <SubscriptionPanel />
-      </motion.div>
+      </div>
     </div>
   );
 };

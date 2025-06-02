@@ -2,13 +2,19 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Sparkles, Send, Loader2 } from 'lucide-react';
 
-const PromptInput = ({ onSubmit, isProcessing }) => {
-  const [prompt, setPrompt] = useState('');
+const PromptInput = ({ value, onChange, onSubmit, isLoading, placeholder, isProcessing }) => {
+  // Use external state if provided, otherwise use internal state
+  const [localPrompt, setLocalPrompt] = useState('');
+  
+  // Determine which state and handlers to use
+  const promptValue = value !== undefined ? value : localPrompt;
+  const handleChange = onChange || setLocalPrompt;
+  const processing = isLoading !== undefined ? isLoading : isProcessing;
   
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (prompt.trim() && !isProcessing) {
-      onSubmit(prompt);
+    if (promptValue.trim() && !processing) {
+      onSubmit(promptValue);
     }
   };
 
@@ -23,11 +29,11 @@ const PromptInput = ({ onSubmit, isProcessing }) => {
       
       <form onSubmit={handleSubmit} className="space-y-4">
         <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          disabled={isProcessing}
+          value={promptValue}
+          onChange={(e) => handleChange(e.target.value)}
+          disabled={processing}
           className="w-full h-32 bg-gray-900 text-white rounded-lg p-3 focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none"
-          placeholder="E.g., I need a movie recommendation app where users can browse, search, and save their favorite movies. It should have a clean UI with ratings and reviews..."
+          placeholder={placeholder || "E.g., I need a movie recommendation app where users can browse, search, and save their favorite movies. It should have a clean UI with ratings and reviews..."}
         ></textarea>
         
         <div className="flex justify-end">
@@ -35,14 +41,14 @@ const PromptInput = ({ onSubmit, isProcessing }) => {
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             type="submit"
-            disabled={isProcessing || !prompt.trim()}
+            disabled={processing || !promptValue.trim()}
             className={`flex items-center gap-2 px-6 py-2 rounded-lg text-white font-medium ${
-              isProcessing || !prompt.trim()
+              processing || !promptValue.trim()
                 ? 'bg-gray-700 cursor-not-allowed'
                 : 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700'
             }`}
           >
-            {isProcessing ? (
+            {processing ? (
               <>
                 <Loader2 className="w-5 h-5 animate-spin" />
                 Processing...

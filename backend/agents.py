@@ -44,7 +44,7 @@ class AgentSystem:
             backstory="You are an expert systems architect who breaks down app ideas into clear, achievable plans. You analyze requirements and create detailed specifications.",
             verbose=True,
             allow_delegation=False,
-            llm=ollama.chat(model=self.llm_name)
+            llm=lambda messages: ollama.chat(model=self.llm_name, messages=messages)
         )
     
     def _create_frontend_agent(self) -> Agent:
@@ -55,7 +55,7 @@ class AgentSystem:
             backstory="You are a skilled frontend developer specializing in React and Tailwind CSS. You create beautiful, responsive UI components that follow best practices.",
             verbose=True,
             allow_delegation=False,
-            llm=ollama.chat(model=self.llm_name)
+            llm=lambda messages: ollama.chat(model=self.llm_name, messages=messages)
         )
     
     def _create_backend_agent(self) -> Agent:
@@ -66,7 +66,7 @@ class AgentSystem:
             backstory="You are an experienced backend developer who specializes in FastAPI. You create efficient, well-structured API endpoints and data models.",
             verbose=True,
             allow_delegation=False,
-            llm=ollama.chat(model=self.llm_name)
+            llm=lambda messages: ollama.chat(model=self.llm_name, messages=messages)
         )
     
     def _create_tester_agent(self) -> Agent:
@@ -77,7 +77,7 @@ class AgentSystem:
             backstory="You are a meticulous QA engineer who writes thorough tests to catch bugs and ensure application reliability.",
             verbose=True,
             allow_delegation=False,
-            llm=ollama.chat(model=self.llm_name)
+            llm=lambda messages: ollama.chat(model=self.llm_name, messages=messages)
         )
     
     def _create_deployment_agent(self) -> Agent:
@@ -88,7 +88,7 @@ class AgentSystem:
             backstory="You are a DevOps specialist who creates deployment configurations and ensures applications are ready for production.",
             verbose=True,
             allow_delegation=False,
-            llm=ollama.chat(model=self.llm_name)
+            llm=lambda messages: ollama.chat(model=self.llm_name, messages=messages)
         )
     
     def create_tasks(self, prompt: str) -> Dict[str, Task]:
