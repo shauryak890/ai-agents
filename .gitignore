@@ -26,6 +26,13 @@ ENV/
 .venv/
 .pytest_cache/
 
+# CrewAI specific
+.crew/
+.crewai_cache/
+.crewai_logs/
+ollama_logs/
+model_cache/
+
 # Node/React
 node_modules/
 /frontend/node_modules/
@@ -81,3 +88,13 @@ pnpm-debug.log*
 *.tmp
 .tmp/
 tmp/
+
+# Generated files
+generated_code/
+downloaded_code/
+.zip
+
+# Job results and caches
+job_results/
+.cache/
+validation_results/

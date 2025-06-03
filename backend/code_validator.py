@@ -257,6 +257,65 @@ class CodeValidator:
             suggestions.append("Review the code for syntax errors and typos")
             
         return suggestions
+    
+    @staticmethod
+    def fix_code(filename: str, content: str, errors: List[str]) -> str:
+        """Attempt to automatically fix common code issues"""
+        fixed_content = content
+        
+        # Get file extension
+        ext = os.path.splitext(filename)[1].lower()
+        
+        # JavaScript/JSX fixes
+        if ext in ('.js', '.jsx', '.ts', '.tsx'):
+            # Fix 1: Missing semicolons
+            if any("Unexpected token" in err or "SyntaxError" in err for err in errors):
+                # Add semicolons at line ends where they might be missing
+                lines = fixed_content.split('\n')
+                for i in range(len(lines)-1):
+                    line = lines[i].strip()
+                    if line and line[-1] not in '{}[]();:,':
+                        next_line = lines[i+1].strip()
+                        if next_line and next_line[0] not in '{}[]();:,.':
+                            lines[i] += ';'
+                fixed_content = '\n'.join(lines)
+                
+                # Fix missing parentheses in arrow functions
+                fixed_content = fixed_content.replace(' x =>', ' (x) =>')
+        
+        # Python fixes
+        elif ext == '.py':
+            # Fix indentation (convert tabs to spaces)
+            if any("IndentationError" in err or "inconsistent" in err for err in errors):
+                # Replace tabs with 4 spaces
+                fixed_content = fixed_content.replace('\t', '    ')
+                
+            # Add missing colons
+            lines = fixed_content.split('\n')
+            for i in range(len(lines)):
+                line = lines[i].strip()
+                if line.startswith(('def ', 'class ', 'if ', 'else ', 'elif ', 'for ', 'while ', 'try', 'except ', 'finally ')):
+                    if not line.endswith(':'):
+                        lines[i] = lines[i] + ':'
+            fixed_content = '\n'.join(lines)
+        
+        # HTML fixes
+        elif ext in ('.html', '.htm'):
+            # Simple tag balancing for most common issues
+            if '<html>' in fixed_content and '</html>' not in fixed_content:
+                fixed_content += '\n</html>'
+            if '<body>' in fixed_content and '</body>' not in fixed_content:
+                fixed_content = fixed_content.replace('</html>', '</body>\n</html>')
+        
+        # CSS fixes
+        elif ext == '.css':
+            # Fix unbalanced braces
+            open_count = fixed_content.count('{')
+            close_count = fixed_content.count('}')
+            if open_count > close_count:
+                fixed_content += '\n' + ('}' * (open_count - close_count))
+                
+        return fixed_content
 
 # Example usage:
 # results = CodeValidator.validate_project(generated_code)

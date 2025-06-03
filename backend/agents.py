@@ -3,7 +3,7 @@ import ollama
 import logging
 
 # Import config to check if we're using mock data
-from config import USE_MOCK_DATA
+from config import USE_MOCK_DATA, OLLAMA_MODEL, OLLAMA_HOST
 
 # Import crewai only if not using mock data
 if not USE_MOCK_DATA:
@@ -36,59 +36,74 @@ class AgentSystem:
             "deployment": self._create_deployment_agent()
         }
     
-    def _create_planner_agent(self) -> Agent:
-        """Create the planner agent"""
+    def _create_planner_agent(self):
+        """Create the planning agent that designs application architecture"""
+        # Create proper LLM object with the bind method
+        llm = f"ollama/{self.llm_name}"
+        
         return Agent(
             role="Planning Architect",
             goal="Create a detailed plan for the application based on user requirements",
             backstory="You are an expert systems architect who breaks down app ideas into clear, achievable plans. You analyze requirements and create detailed specifications.",
             verbose=True,
             allow_delegation=False,
-            llm=lambda messages: ollama.chat(model=self.llm_name, messages=messages)
+            llm=llm
         )
     
-    def _create_frontend_agent(self) -> Agent:
-        """Create the frontend agent"""
+    def _create_frontend_agent(self):
+        """Create the frontend developer agent"""
+        # Create proper LLM object with the bind method
+        llm = f"ollama/{self.llm_name}"
+        
         return Agent(
             role="Frontend Developer",
-            goal="Create modern, responsive React components with Tailwind CSS",
-            backstory="You are a skilled frontend developer specializing in React and Tailwind CSS. You create beautiful, responsive UI components that follow best practices.",
+            goal="Create beautiful, responsive, and user-friendly frontend code",
+            backstory="You are a skilled frontend developer who creates engaging user interfaces with React and modern CSS.",
             verbose=True,
             allow_delegation=False,
-            llm=lambda messages: ollama.chat(model=self.llm_name, messages=messages)
+            llm=llm
         )
     
-    def _create_backend_agent(self) -> Agent:
-        """Create the backend agent"""
+    def _create_backend_agent(self):
+        """Create the backend developer agent"""
+        # Create proper LLM object with the bind method
+        llm = f"ollama/{self.llm_name}"
+        
         return Agent(
-            role="Backend Engineer",
-            goal="Develop robust FastAPI endpoints and data models",
-            backstory="You are an experienced backend developer who specializes in FastAPI. You create efficient, well-structured API endpoints and data models.",
+            role="Backend Developer",
+            goal="Create robust, scalable backend systems",
+            backstory="You are an expert backend developer who creates secure, efficient APIs and server-side logic.",
             verbose=True,
             allow_delegation=False,
-            llm=lambda messages: ollama.chat(model=self.llm_name, messages=messages)
+            llm=llm
         )
     
-    def _create_tester_agent(self) -> Agent:
-        """Create the tester agent"""
+    def _create_tester_agent(self):
+        """Create the QA tester agent"""
+        # Create proper LLM object with the bind method
+        llm = f"ollama/{self.llm_name}"
+        
         return Agent(
-            role="Quality Assurance Engineer",
-            goal="Write comprehensive tests to ensure application quality",
-            backstory="You are a meticulous QA engineer who writes thorough tests to catch bugs and ensure application reliability.",
+            role="Quality Assurance Tester",
+            goal="Ensure code quality and identify potential issues",
+            backstory="You are a thorough QA professional who tests applications to find bugs and performance issues before users do.",
             verbose=True,
             allow_delegation=False,
-            llm=lambda messages: ollama.chat(model=self.llm_name, messages=messages)
+            llm=llm
         )
     
-    def _create_deployment_agent(self) -> Agent:
-        """Create the deployment agent"""
+    def _create_deployment_agent(self):
+        """Create the deployment specialist agent"""
+        # Create proper LLM object with the bind method
+        llm = f"ollama/{self.llm_name}"
+        
         return Agent(
-            role="DevOps Engineer",
-            goal="Prepare deployment configuration for the application",
-            backstory="You are a DevOps specialist who creates deployment configurations and ensures applications are ready for production.",
+            role="Deployment Specialist",
+            goal="Create deployment instructions and configuration for easy application deployment",
+            backstory="You are a DevOps engineer who specializes in creating smooth deployment workflows and documentation.",
             verbose=True,
             allow_delegation=False,
-            llm=lambda messages: ollama.chat(model=self.llm_name, messages=messages)
+            llm=llm
         )
     
     def create_tasks(self, prompt: str) -> Dict[str, Task]:

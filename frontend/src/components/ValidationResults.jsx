@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import ValidationFixer from './ValidationFixer';
+import { motion } from 'framer-motion';
 
 const ValidationResults = ({ validation, jobId }) => {
   const [expandedFile, setExpandedFile] = useState(null);
@@ -39,24 +40,43 @@ const ValidationResults = ({ validation, jobId }) => {
   };
 
   return (
-    <div className="p-6 bg-gray-800 rounded-lg">
+    <motion.div 
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.4 }}
+      className="p-6 bg-gradient-to-br from-gray-800/90 to-gray-900/90 rounded-xl border border-gray-700/50 shadow-xl backdrop-blur-sm"
+    >
       <div className="mb-6 flex items-center">
-        <div className={`w-4 h-4 rounded-full mr-2 ${getBadgeColor(validationData.valid)}`}></div>
-        <h3 className="text-xl font-semibold text-white">
+        <motion.div 
+          initial={{ scale: 0.8 }}
+          animate={{ scale: 1 }}
+          className={`w-5 h-5 rounded-full mr-3 shadow-lg ${getBadgeColor(validationData.valid)}`}
+        />
+        <h3 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-300 to-purple-400">
           Validation {validationData.valid ? 'Successful' : 'Failed'}
         </h3>
       </div>
 
       <div className="mb-6">
         <div className="grid grid-cols-2 gap-4 mb-4">
-          <div className="bg-gray-700 p-4 rounded-lg">
-            <p className="text-gray-400 text-sm mb-1">Files Checked</p>
-            <p className="text-2xl font-bold text-white">{validationData.file_count}</p>
-          </div>
-          <div className="bg-gray-700 p-4 rounded-lg">
-            <p className="text-gray-400 text-sm mb-1">Errors Found</p>
-            <p className="text-2xl font-bold text-white">{validationData.error_count}</p>
-          </div>
+          <motion.div 
+            initial={{ opacity: 0, y: 10 }} 
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="bg-gradient-to-br from-gray-700/80 to-gray-800/80 p-4 rounded-xl border border-gray-600/30 shadow-lg"
+          >
+            <p className="text-gray-400 text-sm mb-1 font-medium">Files Checked</p>
+            <p className="text-2xl font-bold text-blue-300">{validationData.file_count}</p>
+          </motion.div>
+          <motion.div 
+            initial={{ opacity: 0, y: 10 }} 
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="bg-gradient-to-br from-gray-700/80 to-gray-800/80 p-4 rounded-xl border border-gray-600/30 shadow-lg"
+          >
+            <p className="text-gray-400 text-sm mb-1 font-medium">Errors Found</p>
+            <p className="text-2xl font-bold text-red-300">{validationData.error_count}</p>
+          </motion.div>
         </div>
       </div>
       
@@ -71,14 +91,24 @@ const ValidationResults = ({ validation, jobId }) => {
 
       {/* Show warnings if any */}
       {validationData.warnings && validationData.warnings.length > 0 && (
-        <div className="mb-6 p-4 bg-amber-900 bg-opacity-50 rounded-lg">
-          <h4 className="text-amber-300 font-medium mb-2">Warnings</h4>
-          <ul className="list-disc list-inside text-amber-200">
+        <motion.div 
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="mb-6 p-4 bg-gradient-to-r from-amber-900/50 to-amber-800/40 rounded-xl border border-amber-700/30 shadow-lg"
+        >
+          <div className="flex items-center mb-2">
+            <svg className="w-5 h-5 text-amber-300 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <h4 className="text-amber-300 font-medium">Warnings</h4>
+          </div>
+          <ul className="list-disc list-inside text-amber-200 pl-2">
             {validationData.warnings.map((warning, idx) => (
-              <li key={idx}>{warning}</li>
+              <li key={idx} className="mb-1">{warning}</li>
             ))}
           </ul>
-        </div>
+        </motion.div>
       )}
 
       {/* Show file errors */}
@@ -138,7 +168,7 @@ const ValidationResults = ({ validation, jobId }) => {
           </p>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 };
 

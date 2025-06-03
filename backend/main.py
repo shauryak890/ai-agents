@@ -1,8 +1,15 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, Depends, status, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
+import json
+import os
+import uuid
+import time
+from typing import Dict, List, Optional, Any
+from prompt_analyzer import PromptAnalyzer
+from prompt_analyzer import create_analyzer
 import asyncio
 import json
 import os
@@ -13,8 +20,16 @@ from datetime import datetime
 # Import our code validator
 from code_validator import CodeValidator
 
+# Import preview server functionality
+from dotenv import load_dotenv
+load_dotenv()
+
+from preview_server import setup_preview_server
+
+from litellm import completion
+
 # Import config to check if we're using mock data
-from config import USE_MOCK_DATA
+from config import USE_MOCK_DATA, OLLAMA_MODEL, OLLAMA_HOST
 
 # Import agent orchestration system only if not using mock data
 if not USE_MOCK_DATA:
@@ -42,6 +57,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Initialize the preview server
+app = setup_preview_server(app)
 
 # WebSocket connection manager
 class ConnectionManager:
@@ -124,13 +142,16 @@ def create_planner_agent():
             backstory="You are an expert systems architect who breaks down app ideas into clear, achievable plans. You analyze requirements and create detailed specifications."
         )
     else:
+        # Create proper LLM object with the bind method
+        llm = f"ollama/{OLLAMA_MODEL}"
+        
         return Agent(
             role="Planning Architect",
             goal="Create a detailed plan for the application based on user requirements",
             backstory="You are an expert systems architect who breaks down app ideas into clear, achievable plans. You analyze requirements and create detailed specifications.",
             verbose=True,
             allow_delegation=False,
-            llm=lambda messages: ollama.chat(model="phi3", messages=messages)
+            llm=llm
         )
 
 def create_frontend_agent():
@@ -141,13 +162,16 @@ def create_frontend_agent():
             backstory="You are a skilled frontend developer specializing in React and Tailwind CSS. You create beautiful, responsive UI components that follow best practices."
         )
     else:
+        # Create proper LLM object with the bind method
+        llm = f"ollama/{OLLAMA_MODEL}"
+        
         return Agent(
             role="Frontend Developer",
             goal="Create modern, responsive React components with Tailwind CSS",
             backstory="You are a skilled frontend developer specializing in React and Tailwind CSS. You create beautiful, responsive UI components that follow best practices.",
             verbose=True,
             allow_delegation=False,
-            llm=lambda messages: ollama.chat(model="phi3", messages=messages)
+            llm=llm
         )
 
 def create_backend_agent():
@@ -158,13 +182,16 @@ def create_backend_agent():
             backstory="You are an experienced backend developer who specializes in FastAPI. You create efficient, well-structured API endpoints and data models."
         )
     else:
+        # Create proper LLM object with the bind method
+        llm = f"ollama/{OLLAMA_MODEL}"
+        
         return Agent(
             role="Backend Engineer",
             goal="Develop robust FastAPI endpoints and data models",
             backstory="You are an experienced backend developer who specializes in FastAPI. You create efficient, well-structured API endpoints and data models.",
             verbose=True,
             allow_delegation=False,
-            llm=lambda messages: ollama.chat(model="phi3", messages=messages)
+            llm=llm
         )
 
 def create_tester_agent():
@@ -175,13 +202,16 @@ def create_tester_agent():
             backstory="You are a meticulous QA engineer who writes thorough tests to catch bugs and ensure application reliability."
         )
     else:
+        # Create proper LLM object with the bind method
+        llm = f"ollama/{OLLAMA_MODEL}"
+        
         return Agent(
             role="Quality Assurance Engineer",
             goal="Write comprehensive tests to ensure application quality",
             backstory="You are a meticulous QA engineer who writes thorough tests to catch bugs and ensure application reliability.",
             verbose=True,
             allow_delegation=False,
-            llm=lambda messages: ollama.chat(model="phi3", messages=messages)
+            llm=llm
         )
 
 def create_deployment_agent():
@@ -192,13 +222,16 @@ def create_deployment_agent():
             backstory="You are a DevOps specialist who creates deployment configurations and ensures applications are ready for production."
         )
     else:
+        # Create proper LLM object with the bind method
+        llm = f"ollama/{OLLAMA_MODEL}"
+        
         return Agent(
             role="DevOps Engineer",
             goal="Prepare deployment configuration for the application",
             backstory="You are a DevOps specialist who creates deployment configurations and ensures applications are ready for production.",
             verbose=True,
             allow_delegation=False,
-            llm=lambda messages: ollama.chat(model="phi3", messages=messages)
+            llm=llm
         )
 
 # Request models
@@ -218,14 +251,15 @@ jobs = {}
 async def root():
     return {"message": "AI Agent App Builder API"}
 
-@app.post("/api/generate")
-async def generate_app(request: AppRequest):
+@app.post("/api/generate", response_model=JobStatus)
+def generate_app(request: AppRequest, background_tasks: BackgroundTasks):
     job_id = str(uuid.uuid4())
-    
-    # Start job in background
-    asyncio.create_task(process_app_request(job_id, request.prompt))
-    
-    return {"job_id": job_id, "message": "Job started"}
+    jobs[job_id] = {
+        "status": "analyzing",  # New initial status
+        "results": None
+    }
+    background_tasks.add_task(process_app_request, job_id, request.prompt)
+    return JobStatus(job_id=job_id, status="analyzing")  # Updated status
 
 @app.get("/api/jobs/{job_id}")
 async def get_job(job_id: str):
@@ -363,9 +397,47 @@ async def websocket_endpoint(websocket: WebSocket, job_id: str):
 
 # Task processing logic
 async def process_app_request(job_id: str, prompt: str):
-    jobs[job_id] = {"job_id": job_id, "status": "running", "results": None}
+    # Update job status to analyzing
+    jobs[job_id] = {"job_id": job_id, "status": "analyzing", "results": None}
     
     try:
+        # First, analyze the prompt with our prompt analyzer
+        await manager.send_log(job_id, "Prompt Analyzer", "Analyzing your prompt to extract detailed requirements...")
+        
+        # Create analyzer instance
+        analyzer = create_analyzer()
+        
+        # Analyze the prompt
+        try:
+            requirements = analyzer.analyze_prompt(prompt)
+            formatted_requirements = analyzer.format_requirements_for_display(requirements)
+            
+            # Update job with requirements analysis
+            jobs[job_id]["requirements"] = formatted_requirements
+            jobs[job_id]["enhanced_prompt"] = requirements.get("enhanced_prompt", prompt)
+            
+            # Log the analysis results
+            await manager.send_log(job_id, "Prompt Analyzer", f"✅ Analysis complete: Identified {len(requirements.get('features', []))} features and technical requirements")
+            
+            # Show some key information in the logs
+            await manager.send_log(job_id, "Prompt Analyzer", f"App Name: {formatted_requirements['app_name']}")
+            await manager.send_log(job_id, "Prompt Analyzer", f"Framework: {requirements.get('framework', 'Not specified')}")
+            await manager.send_log(job_id, "Prompt Analyzer", f"Backend: {requirements.get('backend', 'Not specified')}")
+            await manager.send_log(job_id, "Prompt Analyzer", f"Database: {requirements.get('database', 'Not specified')}")
+            
+            # Replace original prompt with enhanced prompt for better results
+            enhanced_prompt = requirements.get("enhanced_prompt", prompt)
+            
+            # Update status to running for the main job process
+            jobs[job_id]["status"] = "running"
+            
+        except Exception as e:
+            logger.error(f"Error in prompt analysis: {str(e)}")
+            await manager.send_log(job_id, "Prompt Analyzer", f"⚠️ Warning: Error during prompt analysis. Continuing with original prompt: {str(e)}")
+            enhanced_prompt = prompt
+            jobs[job_id]["status"] = "running"
+            
+        # From this point on, use the enhanced_prompt instead of the original prompt
         # Set up callback for logging
         async def callback_handler(agent, task, output):
             await manager.send_log(job_id, agent.role, f"Completed: {task.description[:100]}...")
@@ -384,8 +456,20 @@ async def process_app_request(job_id: str, prompt: str):
         # Create tasks with appropriate class based on mode
         TaskClass = MockTask if USE_MOCK_DATA else Task
         
+        # Create the planning task with enhanced prompt and analysis results
+        planning_task_description = f"""Create a detailed plan for the following app:
+
+App Name: {jobs[job_id].get('requirements', {}).get('app_name', 'App from prompt')}
+
+Original Request: {prompt}
+
+Enhanced Requirements: {enhanced_prompt}
+
+Analyzed Features: {json.dumps(jobs[job_id].get('requirements', {}).get('sections', []), indent=2)}
+"""
+        
         planning_task = TaskClass(
-            description=f"Analyze the following app idea and create a detailed plan: {prompt}",
+            description=planning_task_description,
             expected_output="A JSON object with 'features', 'architecture', 'tech_stack', and 'timeline' fields",
             agent=planner
         )
@@ -429,7 +513,7 @@ async def process_app_request(job_id: str, prompt: str):
             crew = Crew(
                 agents=[planner, frontend_dev, backend_dev, tester, deployment_engineer],
                 tasks=[planning_task, backend_task, frontend_task, testing_task, deployment_task],
-                verbose=2,
+                verbose=True,
                 process=Process.sequential
             )
         
@@ -461,73 +545,155 @@ async def process_app_request(job_id: str, prompt: str):
                 
                 # Generate a mock result based on the task
                 if task == planning_task:
+                    # Use requirements if available or fallback to default
+                    requirements = jobs[job_id].get('requirements', {})
+                    features = requirements.get('sections', {}).get('features', ["User authentication", "Data visualization", "API integration"])
+                    tech_stack = requirements.get('tech_stack', ["React", "Tailwind CSS", "FastAPI", "SQLite"])
+                    
+                    # Extract frontend and backend frameworks from requirements if available
+                    frontend = requirements.get('framework', "React with Tailwind CSS")
+                    backend = requirements.get('backend', "FastAPI")
+                    database = requirements.get('database', "SQLite for development")
+                    
                     result = {
-                        "features": ["User authentication", "Data visualization", "API integration"],
+                        "features": features,
                         "architecture": {
-                            "frontend": "React with Tailwind CSS",
-                            "backend": "FastAPI",
-                            "database": "SQLite for development"
+                            "frontend": frontend,
+                            "backend": backend,
+                            "database": database
                         },
-                        "tech_stack": ["React", "Tailwind CSS", "FastAPI", "SQLite"],
+                        "tech_stack": tech_stack,
                         "timeline": "MVP in 2-3 days"
                     }
                 elif task == backend_task:
-                    result = {
-                        "endpoints": {
-                            "main.py": generate_backend_code(prompt)
-                        },
-                        "models": {
-                            "models.py": generate_models_code()
-                        },
-                        "database": {
-                            "database.py": generate_database_code()
-                        },
-                        "requirements": generate_requirements()
-                    }
+                    requirements = jobs[job_id].get('requirements', {})
+                    result = {}
+                    
+                    # Always include main API endpoint
+                    result["endpoints"] = {"main.py": generate_backend_code(prompt)}
+                    
+                    # Only include models if the requirements indicate data models are needed
+                    needs_models = False
+                    features = requirements.get('sections', {}).get('features', [])
+                    for feature in features:
+                        if any(term in str(feature).lower() for term in ['database', 'model', 'data', 'storage', 'user', 'authentication']):
+                            needs_models = True
+                            break
+                    
+                    # Include models only if needed
+                    if needs_models:
+                        result["models"] = {"models.py": generate_models_code()}
+                    
+                    # Only include database setup if needed based on requirements
+                    database_type = requirements.get('database', '').lower()
+                    if database_type and database_type != 'none':
+                        result["database"] = {"database.py": generate_database_code()}
+                    
+                    # Always include requirements file
+                    result["requirements"] = generate_requirements()
                 elif task == frontend_task:
-                    result = {
-                        "components": {
-                            "App.jsx": generate_app_jsx(),
-                            "HomePage.jsx": generate_home_page_jsx()
-                        },
-                        "styles": {
-                            "App.css": generate_app_css()
-                        },
-                        "routing": {
-                            "routes": [
-                                {"path": "/", "component": "HomePage"},
-                                {"path": "/preview", "component": "PreviewPage"}
-                            ]
-                        },
-                        "package_json": generate_package_json()
-                    }
+                    requirements = jobs[job_id].get('requirements', {})
+                    result = {}
+                    
+                    # Determine the frontend framework from requirements
+                    frontend_framework = requirements.get('framework', '').lower()
+                    
+                    # Basic components are always needed
+                    components = {}
+                    
+                    # Always include App and HomePage components
+                    components["App.jsx"] = generate_app_jsx()
+                    components["HomePage.jsx"] = generate_home_page_jsx()
+                    
+                    # Check if additional pages are needed based on features
+                    features = requirements.get('sections', {}).get('features', [])
+                    needs_auth = any('auth' in str(feature).lower() or 'login' in str(feature).lower() or 'user' in str(feature).lower() for feature in features)
+                    needs_dashboard = any('dashboard' in str(feature).lower() or 'admin' in str(feature).lower() for feature in features)
+                    
+                    # Add UI components only if required by features
+                    result["components"] = components
+                    
+                    # Always include basic styles
+                    result["styles"] = {"App.css": generate_app_css()}
+                    
+                    # Create routing based on required pages
+                    routes = [{"path": "/", "component": "HomePage"}]
+                    
+                    if needs_auth:
+                        routes.append({"path": "/login", "component": "LoginPage"})
+                        
+                    if needs_dashboard:
+                        routes.append({"path": "/dashboard", "component": "DashboardPage"})
+                    
+                    result["routing"] = {"routes": routes}
+                    
+                    # Always include package.json
+                    result["package_json"] = generate_package_json()
                 elif task == testing_task:
-                    result = {
-                        "backend_tests": {
-                            "test_main.py": generate_backend_tests()
-                        },
-                        "frontend_tests": {
-                            "HomePage.test.jsx": generate_frontend_tests()
-                        },
-                        "integration_tests": {
-                            "test_integration.py": generate_integration_tests()
-                        }
-                    }
+                    requirements = jobs[job_id].get('requirements', {})
+                    result = {}
+                    
+                    # Determine if tests are needed based on requirements
+                    needs_tests = requirements.get('needs_tests', True)  # Default to True for better quality
+                    
+                    # Skip test generation if explicitly not needed
+                    if not needs_tests:
+                        result["note"] = "Tests were skipped based on requirements analysis"
+                        await manager.send_log(job_id, agent.role, "Skipping test generation as per requirements", "completed")
+                    else:
+                        # Determine which tests to generate based on what's been created
+                        if "backend" in results and "endpoints" in results["backend"]:
+                            result["backend_tests"] = {"test_main.py": generate_backend_tests()}
+                            
+                        if "frontend" in results and "components" in results["frontend"]:
+                            result["frontend_tests"] = {"HomePage.test.jsx": generate_frontend_tests()}
+                        
+                        # Only generate integration tests if both frontend and backend exist
+                        if "backend" in results and "frontend" in results:
+                            result["integration_tests"] = {"test_integration.py": generate_integration_tests()}
                 else:  # deployment_task
-                    result = {
-                        "docker": {
-                            "Dockerfile.backend": generate_backend_dockerfile(),
-                            "Dockerfile.frontend": generate_frontend_dockerfile(),
-                            "docker-compose.yml": generate_docker_compose()
-                        },
-                        "deploy": {
-                            "deploy.sh": generate_deploy_script()
-                        },
-                        "env": {
-                            ".env.example": generate_env_example()
-                        },
-                        "readme": generate_readme(prompt)
-                    }
+                    requirements = jobs[job_id].get('requirements', {})
+                    result = {}
+                    
+                    # Check if deployment configuration is needed based on requirements
+                    needs_deployment = requirements.get('needs_deployment', True)
+                    deployment_type = requirements.get('deployment_type', 'docker').lower()
+                    
+                    # Only generate deployment files if needed
+                    if not needs_deployment:
+                        result["note"] = "Deployment configuration was skipped based on requirements analysis"
+                        await manager.send_log(job_id, agent.role, "Skipping deployment configuration as per requirements", "completed")
+                    else:
+                        # Generate Docker files only if Docker deployment is specified or no specific type is mentioned
+                        if deployment_type in ['docker', 'container']:
+                            docker_files = {}
+                            
+                            # Only generate backend Dockerfile if backend exists
+                            if "backend" in results:
+                                docker_files["Dockerfile.backend"] = generate_backend_dockerfile()
+                                
+                            # Only generate frontend Dockerfile if frontend exists
+                            if "frontend" in results:
+                                docker_files["Dockerfile.frontend"] = generate_frontend_dockerfile()
+                                
+                            # Only generate docker-compose if both exist
+                            if "backend" in results and "frontend" in results:
+                                docker_files["docker-compose.yml"] = generate_docker_compose()
+                                
+                            # Add Docker files to result if any were generated
+                            if docker_files:
+                                result["docker"] = docker_files
+                    
+                    # Always include deployment script, but adapt it based on what's being deployed
+                    if "backend" in results or "frontend" in results:
+                        result["deploy"] = {"deploy.sh": generate_deploy_script()}
+                    
+                    # Only include env example if backend exists (since it typically needs environment variables)
+                    if "backend" in results:
+                        result["env"] = {".env.example": generate_env_example()}
+                    
+                    # Always include README for project documentation
+                    result["readme"] = generate_readme(prompt)
                 
                 # Store result
                 task_name = task.description.split()[0].lower()
@@ -551,10 +717,10 @@ async def process_app_request(job_id: str, prompt: str):
             await manager.send_log(job_id, "System", "Running AI agents with CrewAI")
             
             # Register the callback
-            crew.on_agent_start(agent_callback)
+
             
             # Run the crew and get results
-            results = await crew.run()
+            results = await crew.kickoff()
         
         # Run code validation on the generated code
         await manager.send_log(job_id, "Code Validator", "Running code validation on generated files...", "running")

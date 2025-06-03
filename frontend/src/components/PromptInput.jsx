@@ -19,12 +19,12 @@ const PromptInput = ({ value, onChange, onSubmit, isLoading, placeholder, isProc
   };
 
   return (
-    <div className="bg-gray-800 bg-opacity-50 p-6 rounded-lg backdrop-blur-sm border border-gray-700">
+    <div className="bg-gradient-to-br from-gray-800/70 to-gray-900/70 p-8 rounded-xl backdrop-blur-sm border border-gray-700/50 shadow-xl">
       <h2 className="text-xl font-semibold text-white mb-2 flex items-center gap-2">
-        <Sparkles className="w-5 h-5" /> AI Agents App Builder
+        <Sparkles className="w-5 h-5 text-blue-400" /> Describe Your App
       </h2>
-      <p className="text-gray-400 mb-4">
-        Describe your app idea in detail, and our AI agents will build it for you.
+      <p className="text-gray-300 mb-4">
+        Provide details about your application idea, and our specialized AI crew will collaborate to build it for you.
       </p>
       
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -32,20 +32,20 @@ const PromptInput = ({ value, onChange, onSubmit, isLoading, placeholder, isProc
           value={promptValue}
           onChange={(e) => handleChange(e.target.value)}
           disabled={processing}
-          className="w-full h-32 bg-gray-900 text-white rounded-lg p-3 focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none"
-          placeholder={placeholder || "E.g., I need a movie recommendation app where users can browse, search, and save their favorite movies. It should have a clean UI with ratings and reviews..."}
+          className="w-full h-32 bg-gray-900/80 text-white rounded-xl p-4 focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none border border-gray-700/50 shadow-inner placeholder-gray-500"
+          placeholder={placeholder || "E.g., Create a facebook clone application with user profiles, news feed, and messaging features..."}
         ></textarea>
         
         <div className="flex justify-end">
           <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
             type="submit"
             disabled={processing || !promptValue.trim()}
-            className={`flex items-center gap-2 px-6 py-2 rounded-lg text-white font-medium ${
+            className={`flex items-center gap-2 px-8 py-3 rounded-xl text-white font-medium shadow-lg ${
               processing || !promptValue.trim()
                 ? 'bg-gray-700 cursor-not-allowed'
-                : 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700'
+                : 'bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700'
             }`}
           >
             {processing ? (

@@ -17,8 +17,8 @@ const ValidationFixer = ({ jobId, validation, onFixComplete }) => {
     setFixProgress(0);
     
     try {
-      // Call backend API to fix all validation issues
-      const response = await axios.post(`/api/jobs/${jobId}/fix-validation`);
+      // Call backend API to fix all validation issues with full URL
+      const response = await axios.post(`http://localhost:8000/api/jobs/${jobId}/fix-validation`);
       
       if (response.data.success) {
         // Update UI with fixed code
