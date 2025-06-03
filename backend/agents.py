@@ -38,8 +38,16 @@ class AgentSystem:
     
     def _create_planner_agent(self):
         """Create the planning agent that designs application architecture"""
-        # Create proper LLM object with the bind method
-        llm = f"ollama/{self.llm_name}"
+        # Use a compatible configuration for Ollama with LiteLLM
+        llm = {
+            "model": f"ollama/{self.llm_name}",
+            "api_base": OLLAMA_HOST,
+            "config": {
+                "context_window": 8192,  # Adjust based on model capabilities
+                "tool_system": False,    # Disable tool system to avoid compatibility issues
+                "seed": 42               # For consistent results
+            }
+        }
         
         return Agent(
             role="Planning Architect",
@@ -52,8 +60,16 @@ class AgentSystem:
     
     def _create_frontend_agent(self):
         """Create the frontend developer agent"""
-        # Create proper LLM object with the bind method
-        llm = f"ollama/{self.llm_name}"
+        # Use a compatible configuration for Ollama with LiteLLM
+        llm = {
+            "model": f"ollama/{self.llm_name}",
+            "api_base": OLLAMA_HOST,
+            "config": {
+                "context_window": 8192,  # Adjust based on model capabilities
+                "tool_system": False,    # Disable tool system to avoid compatibility issues
+                "seed": 42               # For consistent results
+            }
+        }
         
         return Agent(
             role="Frontend Developer",
@@ -66,11 +82,19 @@ class AgentSystem:
     
     def _create_backend_agent(self):
         """Create the backend developer agent"""
-        # Create proper LLM object with the bind method
-        llm = f"ollama/{self.llm_name}"
+        # Use a compatible configuration for Ollama with LiteLLM
+        llm = {
+            "model": f"ollama/{self.llm_name}",
+            "api_base": OLLAMA_HOST,
+            "config": {
+                "context_window": 8192,  # Adjust based on model capabilities
+                "tool_system": False,    # Disable tool system to avoid compatibility issues
+                "seed": 42               # For consistent results
+            }
+        }
         
         return Agent(
-            role="Backend Developer",
+            role="Backend Engineer",
             goal="Create robust, scalable backend systems",
             backstory="You are an expert backend developer who creates secure, efficient APIs and server-side logic.",
             verbose=True,
@@ -80,11 +104,19 @@ class AgentSystem:
     
     def _create_tester_agent(self):
         """Create the QA tester agent"""
-        # Create proper LLM object with the bind method
-        llm = f"ollama/{self.llm_name}"
+        # Use a compatible configuration for Ollama with LiteLLM
+        llm = {
+            "model": f"ollama/{self.llm_name}",
+            "api_base": OLLAMA_HOST,
+            "config": {
+                "context_window": 8192,  # Adjust based on model capabilities
+                "tool_system": False,    # Disable tool system to avoid compatibility issues
+                "seed": 42               # For consistent results
+            }
+        }
         
         return Agent(
-            role="Quality Assurance Tester",
+            role="Quality Assurance Engineer",
             goal="Ensure code quality and identify potential issues",
             backstory="You are a thorough QA professional who tests applications to find bugs and performance issues before users do.",
             verbose=True,
@@ -94,11 +126,19 @@ class AgentSystem:
     
     def _create_deployment_agent(self):
         """Create the deployment specialist agent"""
-        # Create proper LLM object with the bind method
-        llm = f"ollama/{self.llm_name}"
+        # Use a compatible configuration for Ollama with LiteLLM
+        llm = {
+            "model": f"ollama/{self.llm_name}",
+            "api_base": OLLAMA_HOST,
+            "config": {
+                "context_window": 8192,  # Adjust based on model capabilities
+                "tool_system": False,    # Disable tool system to avoid compatibility issues
+                "seed": 42               # For consistent results
+            }
+        }
         
         return Agent(
-            role="Deployment Specialist",
+            role="DevOps Engineer",
             goal="Create deployment instructions and configuration for easy application deployment",
             backstory="You are a DevOps engineer who specializes in creating smooth deployment workflows and documentation.",
             verbose=True,

@@ -26,7 +26,7 @@ load_dotenv()
 
 from preview_server import setup_preview_server
 
-from litellm import completion
+import litellm
 
 # Import config to check if we're using mock data
 from config import USE_MOCK_DATA, OLLAMA_MODEL, OLLAMA_HOST
@@ -717,10 +717,36 @@ Analyzed Features: {json.dumps(jobs[job_id].get('requirements', {}).get('section
             await manager.send_log(job_id, "System", "Running AI agents with CrewAI")
             
             # Register the callback
-
+            crew.on_agent_start(lambda agent: asyncio.run(manager.send_log(job_id, agent.role, f"Starting work...")))
+            crew.on_agent_finish(lambda agent, output: asyncio.run(manager.send_log(job_id, agent.role, f"Completed task", "completed")))
             
-            # Run the crew and get results
-            results = await crew.kickoff()
+            # Run the crew and get results - CrewAI 0.11.2 doesn't support awaiting kickoff()
+            # Convert to run in a thread to avoid blocking
+            loop = asyncio.get_event_loop()
+            crew_output = await loop.run_in_executor(None, crew.kickoff)
+            
+            # Debug logging to understand the structure of the CrewOutput
+            logger.info(f"CrewOutput type: {type(crew_output)}")
+            
+            # Process the CrewOutput object correctly based on CrewAI 0.11.2
+            # CrewOutput in 0.11.2 is a dictionary-like object with task outputs
+            if hasattr(crew_output, 'task_outputs'):
+                # New CrewAI versions return a CrewOutput object with task_outputs
+                results = {}
+                for task_output in crew_output.task_outputs:
+                    task_name = task_output.task.description.split('\n')[0][:20].strip()
+                    results[task_name] = task_output.output
+                logger.info(f"Processed CrewOutput with {len(results)} tasks")
+            else:
+                # Fallback for different CrewAI versions
+                try:
+                    # Try to convert to dict if it's JSON serializable
+                    results = json.loads(json.dumps(crew_output))
+                    logger.info("Converted CrewOutput to dictionary")
+                except:
+                    # Last resort, treat as dictionary directly
+                    results = crew_output
+                    logger.info("Using CrewOutput directly as results")
         
         # Run code validation on the generated code
         await manager.send_log(job_id, "Code Validator", "Running code validation on generated files...", "running")
@@ -729,23 +755,61 @@ Analyzed Features: {json.dumps(jobs[job_id].get('requirements', {}).get('section
             # Let's extract all code files from the results to validate
             validation_files = {}
             
-            # Process backend files
-            if "backend" in results:
-                validation_files["backend"] = {}
-                if "endpoints" in results["backend"]:
-                    validation_files["backend"].update(results["backend"]["endpoints"])
-                if "models" in results["backend"]:
-                    validation_files["backend"].update(results["backend"]["models"])
-                if "database" in results["backend"]:
-                    validation_files["backend"].update(results["backend"]["database"])
+            # Debug log the results structure to help with troubleshooting
+            logger.info(f"Results keys: {list(results.keys()) if isinstance(results, dict) else 'Results is not a dict'}")            
             
-            # Process frontend files
-            if "frontend" in results:
-                validation_files["frontend"] = {}
-                if "components" in results["frontend"]:
-                    validation_files["frontend"].update(results["frontend"]["components"])
-                if "styles" in results["frontend"]:
-                    validation_files["frontend"].update(results["frontend"]["styles"])
+            # Process results based on structure - handle both task-based and category-based formats
+            # First, try to find backend and frontend keys directly
+            if isinstance(results, dict):
+                # Process backend files
+                backend_key = next((k for k in results.keys() if 'backend' in k.lower()), None)
+                if backend_key:
+                    backend_data = results[backend_key]
+                    validation_files["backend"] = {}
+                    
+                    # Handle different backend result structures
+                    if isinstance(backend_data, dict):
+                        # Check for endpoints, models, database keys
+                        for key in ["endpoints", "models", "database"]:
+                            if key in backend_data and isinstance(backend_data[key], dict):
+                                validation_files["backend"].update(backend_data[key])
+                        # If no structured keys, try to use the entire dict
+                        if not validation_files["backend"] and any(isinstance(v, str) for v in backend_data.values()):
+                            validation_files["backend"] = {k: v for k, v in backend_data.items() if isinstance(v, str)}
+                    elif isinstance(backend_data, str):
+                        # If it's just a string, try to parse as JSON
+                        try:
+                            parsed = json.loads(backend_data)
+                            if isinstance(parsed, dict):
+                                validation_files["backend"] = parsed
+                        except:
+                            # If not JSON, store as main.py
+                            validation_files["backend"] = {"main.py": backend_data}
+                
+                # Process frontend files
+                frontend_key = next((k for k in results.keys() if 'frontend' in k.lower()), None)
+                if frontend_key:
+                    frontend_data = results[frontend_key]
+                    validation_files["frontend"] = {}
+                    
+                    # Handle different frontend result structures
+                    if isinstance(frontend_data, dict):
+                        # Check for components, styles keys
+                        for key in ["components", "styles"]:
+                            if key in frontend_data and isinstance(frontend_data[key], dict):
+                                validation_files["frontend"].update(frontend_data[key])
+                        # If no structured keys, try to use the entire dict
+                        if not validation_files["frontend"] and any(isinstance(v, str) for v in frontend_data.values()):
+                            validation_files["frontend"] = {k: v for k, v in frontend_data.items() if isinstance(v, str)}
+                    elif isinstance(frontend_data, str):
+                        # If it's just a string, try to parse as JSON
+                        try:
+                            parsed = json.loads(frontend_data)
+                            if isinstance(parsed, dict):
+                                validation_files["frontend"] = parsed
+                        except:
+                            # If not JSON, store as App.jsx
+                            validation_files["frontend"] = {"App.jsx": frontend_data}
             
             # Run validation
             validation_result = CodeValidator.validate_project(validation_files)
