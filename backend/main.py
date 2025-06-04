@@ -26,6 +26,9 @@ load_dotenv()
 
 from preview_server import setup_preview_server
 
+# Regular expression for extracting code from markdown
+import re
+
 import litellm
 
 # Import config to check if we're using mock data
@@ -247,6 +250,106 @@ class JobStatus(BaseModel):
 jobs = {}
 
 # API endpoints
+
+from fastapi.responses import JSONResponse
+from fastapi import Request
+
+from fastapi import APIRouter, Query, HTTPException
+import re
+
+router = APIRouter()
+
+def extract_code_from_output(result) -> str:
+    """Extract code from various output formats including CrewOutput objects, markdown strings, etc."""
+    # If result is None, return empty string
+    if result is None:
+        logger.warning("extract_code_from_output received None result")
+        return ""
+    
+    # If result has a code attribute, use that directly
+    if hasattr(result, 'code') and result.code:
+        logger.info("Found code attribute in result")
+        return str(result.code)
+        
+    # If result has raw_output attribute (like CrewOutput objects do), process it
+    if hasattr(result, 'raw_output') and result.raw_output:
+        logger.info("Found raw_output attribute in result")
+        raw_text = result.raw_output
+        
+        # Look for code blocks with triple backticks (language tag is optional)
+        code_blocks = re.findall(r'```(?:\w*)?\s*\n([\s\S]*?)```', raw_text, re.DOTALL)
+        if code_blocks:
+            logger.info(f"Extracted {len(code_blocks)} code blocks from raw_output")
+            # Join all code blocks with newlines
+            return '\n\n'.join(code_blocks)
+        
+        return raw_text.strip()
+    
+    # If result is a dict, check various patterns
+    if isinstance(result, dict):
+        # If dict has a 'code' key, use that
+        if 'code' in result:
+            logger.info("Found 'code' key in dict result")
+            return str(result['code'])
+        
+        # If dict has only one item, use its value
+        if len(result) == 1:
+            logger.info("Single value dict result, using its value")
+            key = next(iter(result))
+            # Recursively process the value
+            return extract_code_from_output(result[key])
+            
+        # Check for raw_output key
+        if 'raw_output' in result:
+            logger.info("Found 'raw_output' key in dict result")
+            return extract_code_from_output(result['raw_output'])
+    
+    # If result is a string, try to extract code blocks
+    if isinstance(result, str):
+        # Look for code blocks with triple backticks
+        code_blocks = re.findall(r'```(?:\w*)?\s*\n([\s\S]*?)```', result, re.DOTALL)
+        if code_blocks:
+            logger.info(f"Extracted {len(code_blocks)} code blocks from string")
+            # Join all code blocks with newlines
+            return '\n\n'.join(code_blocks)
+        else:
+            # If no code blocks found, return the entire string
+            return result.strip()
+    
+    # If result is a list, try to join its items
+    if isinstance(result, list):
+        logger.info("Processing list result")
+        # Try to concatenate all items in the list
+        try:
+            return '\n\n'.join(str(extract_code_from_output(item)) for item in result)
+        except Exception as e:
+            logger.error(f"Error processing list result: {e}")
+    
+    # Last resort: convert to string
+    logger.info(f"Using string representation of type: {type(result)}")
+    return str(result)
+
+@router.get("/api/generate-code")
+def get_generated_code(job_id: str):
+    try:
+        # Try to get job from job_manager first
+        job = job_manager.get_job(job_id)
+        job_result = job.result
+    except (AttributeError, Exception) as e:
+        # Fall back to checking the jobs dictionary
+        if job_id in jobs and jobs[job_id].get("results"):
+            job_result = jobs[job_id]["results"]
+        else:
+            logger.error(f"Job {job_id} not found or has no results: {e if 'e' in locals() else ''}")
+            raise HTTPException(status_code=404, detail="Job or result not found")
+    
+    # Extract code from the result
+    code = extract_code_from_output(job_result)
+    logger.info(f"Extracted code for job {job_id}, length: {len(code) if code else 0}")
+    return {"code": code}
+
+app.include_router(router)
+
 @app.get("/")
 async def root():
     return {"message": "AI Agent App Builder API"}
@@ -264,7 +367,17 @@ def generate_app(request: AppRequest, background_tasks: BackgroundTasks):
 @app.get("/api/jobs/{job_id}")
 async def get_job(job_id: str):
     if job_id in jobs:
-        return jobs[job_id]
+        job_data = jobs[job_id]
+        
+        # Add code field directly for frontend compatibility
+        if job_data and "results" in job_data and job_data["results"] and "raw_output" in job_data["results"]:
+            # Extract code from raw_output and add it directly to results
+            if "code" not in job_data["results"]:
+                code = extract_code_from_output(job_data["results"]["raw_output"])
+                job_data["results"]["code"] = {"main.py": code}
+                logger.info(f"Added extracted code to job {job_id} results (length: {len(code) if code else 0})")
+                
+        return job_data
     raise HTTPException(status_code=404, detail="Job not found")
 
 @app.post("/api/jobs/{job_id}/fix-validation")
@@ -397,6 +510,16 @@ async def websocket_endpoint(websocket: WebSocket, job_id: str):
 
 # Task processing logic
 async def process_app_request(job_id: str, prompt: str):
+    # Define agent callback at the top so it is always in scope
+    def agent_callback(agent, task, output):
+        import asyncio
+        # Send 'started' log before task execution
+        asyncio.run(manager.send_log(job_id, agent.role, f"Started: {task.description[:50]}...", "running"))
+        # If possible, yield here or call the agent's execution logic
+        # Send 'completed' log after task execution
+        asyncio.run(manager.send_log(job_id, agent.role, f"Completed: {task.description[:50]}...", "completed"))
+        return output
+
     # Update job status to analyzing
     jobs[job_id] = {"job_id": job_id, "status": "analyzing", "results": None}
     
@@ -509,23 +632,17 @@ Analyzed Features: {json.dumps(jobs[job_id].get('requirements', {}).get('section
                 tasks=[planning_task, backend_task, frontend_task, testing_task, deployment_task]
             )
         else:
-            # Create real crew for non-mock mode
+            # Create real crew for non-mock mode with callback for CrewAI 0.11.2
             crew = Crew(
                 agents=[planner, frontend_dev, backend_dev, tester, deployment_engineer],
                 tasks=[planning_task, backend_task, frontend_task, testing_task, deployment_task],
                 verbose=True,
-                process=Process.sequential
+                process=Process.sequential,
+                callbacks=[agent_callback]  # Use the callback function we defined
             )
         
-        # Track progress
+        # Track progress for mock mode
         current_agent = None
-        
-        # Define custom callback
-        def agent_callback(agent, task, output):
-            nonlocal current_agent
-            current_agent = agent.role
-            asyncio.run(manager.send_log(job_id, agent.role, f"Working on: {task.description[:100]}..."))
-            return output
         
         # Execute tasks
         await manager.send_log(job_id, "System", "Starting AI agents")
@@ -716,9 +833,14 @@ Analyzed Features: {json.dumps(jobs[job_id].get('requirements', {}).get('section
             # In real mode, actually run the crew with the CrewAI API
             await manager.send_log(job_id, "System", "Running AI agents with CrewAI")
             
-            # Register the callback
-            crew.on_agent_start(lambda agent: asyncio.run(manager.send_log(job_id, agent.role, f"Starting work...")))
-            crew.on_agent_finish(lambda agent, output: asyncio.run(manager.send_log(job_id, agent.role, f"Completed task", "completed")))
+            # Define the crew with the callback function
+            crew = Crew(
+                agents=[planner, frontend_dev, backend_dev, tester, deployment_engineer],
+                tasks=[planning_task, backend_task, frontend_task, testing_task, deployment_task],
+                verbose=True,
+                process=Process.sequential,
+                callbacks=[agent_callback]  # Use the callback function we defined
+            )
             
             # Run the crew and get results - CrewAI 0.11.2 doesn't support awaiting kickoff()
             # Convert to run in a thread to avoid blocking
@@ -728,25 +850,59 @@ Analyzed Features: {json.dumps(jobs[job_id].get('requirements', {}).get('section
             # Debug logging to understand the structure of the CrewOutput
             logger.info(f"CrewOutput type: {type(crew_output)}")
             
-            # Process the CrewOutput object correctly based on CrewAI 0.11.2
-            # CrewOutput in 0.11.2 is a dictionary-like object with task outputs
+            # Robustly extract outputs from CrewOutput for downstream processing
+            results = {}
             if hasattr(crew_output, 'task_outputs'):
-                # New CrewAI versions return a CrewOutput object with task_outputs
-                results = {}
+                # CrewOutput object with task_outputs attribute
                 for task_output in crew_output.task_outputs:
-                    task_name = task_output.task.description.split('\n')[0][:20].strip()
+                    if hasattr(task_output, 'task') and hasattr(task_output.task, 'description'):
+                        task_name = task_output.task.description.split('\n')[0][:20].strip().lower().replace(' ', '_')
+                    else:
+                        task_name = f"task_{len(results)+1}"
                     results[task_name] = task_output.output
-                logger.info(f"Processed CrewOutput with {len(results)} tasks")
-            else:
-                # Fallback for different CrewAI versions
+                logger.info(f"Processed CrewOutput with {len(results)} tasks: {list(results.keys())}")
+            elif isinstance(crew_output, dict):
+                results = crew_output
+                logger.info(f"CrewOutput is a dict with keys: {list(results.keys())}")
+            elif isinstance(crew_output, list):
+                for idx, output in enumerate(crew_output):
+                    results[f"task_{idx+1}"] = output
+                logger.info(f"CrewOutput is a list with {len(results)} items")
+            elif isinstance(crew_output, str):
                 try:
-                    # Try to convert to dict if it's JSON serializable
-                    results = json.loads(json.dumps(crew_output))
-                    logger.info("Converted CrewOutput to dictionary")
-                except:
-                    # Last resort, treat as dictionary directly
-                    results = crew_output
-                    logger.info("Using CrewOutput directly as results")
+                    results = json.loads(crew_output)
+                    logger.info(f"CrewOutput string parsed as JSON with keys: {list(results.keys()) if isinstance(results, dict) else type(results)}")
+                except Exception as e:
+                    logger.error(f"Could not parse CrewOutput string as JSON: {e}")
+                    results = {"raw_output": crew_output}
+            else:
+                # Handle CrewOutput object more gracefully
+                logger.info(f"Processing CrewOutput object of type: {type(crew_output)}")
+                if hasattr(crew_output, 'raw_output'):
+                    logger.info("CrewOutput has raw_output attribute")
+                    raw_output = crew_output.raw_output
+                    # Try to extract code from the raw_output
+                    code = extract_code_from_output(raw_output)
+                    results = {
+                        "raw_output": raw_output,
+                        "code": code  # Store extracted code directly
+                    }
+                    logger.info(f"Extracted code from CrewOutput.raw_output (length: {len(code) if code else 0})")
+                else:
+                    # Fallback to string representation
+                    logger.info("Converting CrewOutput to string representation")
+                    raw_output = str(crew_output)
+                    code = extract_code_from_output(raw_output)
+                    results = {
+                        "raw_output": raw_output,
+                        "code": code
+                    }
+                    logger.info(f"Extracted code from CrewOutput string representation (length: {len(code) if code else 0})")
+                
+                # Make sure code field is directly available in results for frontend
+                if "code" not in results and "raw_output" in results:
+                    results["code"] = extract_code_from_output(results["raw_output"])
+
         
         # Run code validation on the generated code
         await manager.send_log(job_id, "Code Validator", "Running code validation on generated files...", "running")
