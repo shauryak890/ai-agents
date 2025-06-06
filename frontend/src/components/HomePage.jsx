@@ -99,12 +99,33 @@ const HomePage = () => {
             Object.entries(results[section].code).forEach(([filename, content]) => {
               extractedFiles[`${section}/${filename}`] = content;
             });
+          } else {
+            // Handle case where section contains direct filename/content pairs
+            Object.entries(results[section]).forEach(([key, value]) => {
+              if (typeof value === 'string' && key.includes('.')) {
+                extractedFiles[`${section}/${key}`] = value;
+              } else if (typeof value === 'object') {
+                Object.entries(value).forEach(([subKey, subValue]) => {
+                  if (typeof subValue === 'string' && subKey.includes('.')) {
+                    extractedFiles[`${section}/${key}/${subKey}`] = subValue;
+                  }
+                });
+              }
+            });
           }
         }
       });
       
       if (foundSections && Object.keys(extractedFiles).length > 0) {
         return extractedFiles;
+      }
+      
+      // If there's a raw_output field with code blocks, extract them
+      if (results.raw_output && typeof results.raw_output === 'string') {
+        const codeBlocks = extractCodeBlocksFromMarkdown(results.raw_output);
+        if (Object.keys(codeBlocks).length > 0) {
+          return codeBlocks;
+        }
       }
       
       // Look for any keys that seem like filenames
@@ -121,6 +142,53 @@ const HomePage = () => {
       }
       
       return {};
+    };
+    
+    // Helper function to extract code blocks from markdown
+    const extractCodeBlocksFromMarkdown = (markdown) => {
+      const files = {};
+      let fileCounter = 1;
+      
+      // Match code blocks with language specification
+      const codeBlockRegex = /```(\w+)\n([\s\S]*?)```/g;
+      let match;
+      
+      while ((match = codeBlockRegex.exec(markdown)) !== null) {
+        const language = match[1];
+        const code = match[2].trim();
+        
+        // Determine filename based on language
+        let filename;
+        switch (language) {
+          case 'javascript':
+          case 'js':
+            filename = `script${fileCounter}.js`;
+            break;
+          case 'jsx':
+            filename = `component${fileCounter}.jsx`;
+            break;
+          case 'python':
+          case 'py':
+            filename = `script${fileCounter}.py`;
+            break;
+          case 'html':
+            filename = `page${fileCounter}.html`;
+            break;
+          case 'css':
+            filename = `styles${fileCounter}.css`;
+            break;
+          case 'json':
+            filename = `data${fileCounter}.json`;
+            break;
+          default:
+            filename = `file${fileCounter}.${language || 'txt'}`;
+        }
+        
+        files[filename] = code;
+        fileCounter++;
+      }
+      
+      return files;
     };
     
     const allFiles = extractFilesFromResults(results);
@@ -323,11 +391,10 @@ const HomePage = () => {
     return () => clearInterval(simulationInterval);
   }, []); // Run once on component mount
   
-  // Effect for establishing WebSocket connection
+  // WebSocket connection for real-time updates
   useEffect(() => {
     if (jobId) {
-      const wsUrl = `ws://${window.location.hostname}:8000/ws/${jobId}`;
-      const ws = new WebSocket(wsUrl);
+      const ws = new WebSocket(`ws://${window.location.host}/ws/${jobId}`);
       
       ws.onopen = () => {
         console.log('WebSocket connected');
@@ -336,198 +403,177 @@ const HomePage = () => {
       
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
+        console.log('WebSocket message received:', data); // Add debug logging
+        
+        // Add to logs
         setLogs(prevLogs => [...prevLogs, data]);
         
-        // Add to terminal output
+        // Add to terminal output with proper formatting
         if (data.message) {
-          setTerminalOutput(prev => [...prev, { type: 'message', content: data.message }]);
-
-          // Parse CrewAI specific messages
-          if (data.message.includes('Crew Execution Started')) {
-            setCurrentStep('started');
-            setOverallProgress(5);
+          setTerminalOutput(prev => [
+            ...prev, 
+            { 
+              type: data.status === 'error' ? 'error' : 
+                    data.status === 'completed' ? 'success' : 'info', 
+              content: `${data.agent ? `[${data.agent}] ` : ''}${data.message}`,
+              timestamp: data.timestamp
+            }
+          ]);
+        }
+        
+        // Extract agent information
+        const agentName = data.agent?.toLowerCase() || '';
+        
+        // Map the agent name to our internal agent keys
+        let agentKey = null;
+        if (agentName.includes('planning') || agentName.includes('architect')) {
+          agentKey = 'planner';
+        } else if (agentName.includes('front')) {
+          agentKey = 'frontend';
+        } else if (agentName.includes('back')) {
+          agentKey = 'backend';
+        } else if (agentName.includes('quality') || agentName.includes('qa') || agentName.includes('test')) {
+          agentKey = 'tester';
+        } else if (agentName.includes('devops') || agentName.includes('deploy')) {
+          agentKey = 'deployment';
+        }
+        
+        // Update agent status based on the message content
+        if (agentKey) {
+          // Determine status based on message content
+          let status = 'running';
+          
+          if (data.status === 'completed' || data.message?.includes('Completed') || data.message?.includes('completed')) {
+            status = 'completed';
+          } else if (data.status === 'failed' || data.message?.includes('Failed') || data.message?.includes('failed')) {
+            status = 'failed';
+          } else if (data.status === 'running' || data.message?.includes('Started') || data.message?.includes('Executing')) {
+            status = 'running';
+          }
+          
+          // Update the specific agent status
+          setAgentStatuses(prev => ({
+            ...prev,
+            [agentKey]: status
+          }));
+          
+          // Update progress based on agent status changes
+          if (status === 'completed') {
+            // When an agent completes, increase overall progress
+            const completedWeight = {
+              'planner': 25,
+              'backend': 25,
+              'frontend': 25,
+              'tester': 15,
+              'deployment': 10
+            };
             
-            // Reset agent statuses on new execution
-            setAgentStatuses({
-              planner: 'running',    // Start with Planning Architect in running state
-              backend: 'pending',    
-              frontend: 'pending',  
-              tester: 'pending',     
-              deployment: 'pending'
+            setOverallProgress(prev => {
+              // Calculate new progress based on completed agents
+              const newProgress = Math.min(100, prev + completedWeight[agentKey] || 0);
+              return newProgress;
             });
-          }
-          
-          // Update agent statuses based on message content
-          // Planning Architect status updates
-          if (data.message.includes('Planning Architect') || data.message.includes('Architect Agent')) {
-            if (data.message.includes('Task Completed') || data.message.includes('✅ Completed')) {
-              setAgentStatuses(prev => ({ ...prev, planner: 'completed' }));
-            } else if (!data.message.includes('Status: pending')) {
-              setAgentStatuses(prev => ({ ...prev, planner: 'running' }));
-            }
-          }
-          
-          // Backend Engineer status updates
-          if (data.message.includes('Backend Engineer')) {
-            if (data.message.includes('Task Completed') || data.message.includes('✅ Completed')) {
-              setAgentStatuses(prev => ({ ...prev, backend: 'completed' }));
-            } else if (!data.message.includes('Status: pending')) {
-              setAgentStatuses(prev => ({ ...prev, backend: 'running' }));
-            }
-          }
-          
-          // Frontend Developer status updates
-          if (data.message.includes('Frontend Developer')) {
-            if (data.message.includes('Task Completed') || data.message.includes('✅ Completed')) {
-              setAgentStatuses(prev => ({ ...prev, frontend: 'completed' }));
-            } else if (!data.message.includes('Status: pending')) {
-              setAgentStatuses(prev => ({ ...prev, frontend: 'running' }));
-            }
-          }
-          
-          // QA Engineer status updates
-          if (data.message.includes('QA Engineer') || data.message.includes('Quality Assurance')) {
-            if (data.message.includes('Task Completed') || data.message.includes('✅ Completed')) {
-              setAgentStatuses(prev => ({ ...prev, tester: 'completed' }));
-            } else if (!data.message.includes('Status: pending')) {
-              setAgentStatuses(prev => ({ ...prev, tester: 'running' }));
-            }
-          }
-          
-          // DevOps Engineer status updates
-          if (data.message.includes('DevOps Engineer')) {
-            if (data.message.includes('Task Completed') || data.message.includes('✅ Completed')) {
-              setAgentStatuses(prev => ({ ...prev, deployment: 'completed' }));
-            } else if (!data.message.includes('Status: pending')) {
-              setAgentStatuses(prev => ({ ...prev, deployment: 'running' }));
-            }
-          }
-          
-          // Parse task information
-          const taskMatch = data.message.match(/Task: ([0-9a-f-]+)/);
-          if (taskMatch) {
-            const taskId = taskMatch[1];
-            // Track task ID and update relevant agent status
-            console.log(`Detected task: ${taskId}`);
             
-            // If we see a new task and can't determine which agent,
-            // assume it's the next one in the pipeline
-            if (data.message.includes('Executing Task')) {
-              // Check the current state and advance the next pending agent
-              setAgentStatuses(prev => {
-                const newStatuses = {...prev};
-                if (prev.planner === 'completed' && prev.backend === 'pending') {
-                  newStatuses.backend = 'running';
-                } else if (prev.backend === 'completed' && prev.frontend === 'pending') {
-                  newStatuses.frontend = 'running';
-                } else if (prev.frontend === 'completed' && prev.tester === 'pending') {
-                  newStatuses.tester = 'running';
-                } else if (prev.tester === 'completed' && prev.deployment === 'pending') {
-                  newStatuses.deployment = 'running';
-                }
-                return newStatuses;
-              });
-            }
-          }
-          
-          // Track agent progress
-          if (data.message.includes('# Agent:')) {
-            // Extract agent name
-            const agentMatch = data.message.match(/# Agent: ([\\w\\s]+)/);
-            if (agentMatch) {
-              const agentName = agentMatch[1].trim();
-              // Map the agent name to our state keys
-              const agentKey = 
-                agentName.toLowerCase().includes('planning') || agentName.toLowerCase().includes('architect') ? 'planner' : 
-                agentName.toLowerCase().includes('front') ? 'frontend' : 
-                agentName.toLowerCase().includes('back') ? 'backend' : 
-                agentName.toLowerCase().includes('quality') || agentName.toLowerCase().includes('qa') ? 'tester' : 
-                agentName.toLowerCase().includes('devops') ? 'deployment' : null;
-                
-              if (agentKey) {
-                // Update agent status to running
-                setAgentStatuses(prev => ({
-                  ...prev, 
-                  [agentKey]: 'running'
-                }));
-              }
-            }
-          }
-          
-          // Detect task completion
-          if (data.message.includes('Task Completed')) {
-            // Increment completed tasks counter
+            // Increment task completion count
             setTaskCompletionCount(prev => prev + 1);
-            setOverallProgress(prev => Math.min(prev + 20, 95)); // 5 tasks = 20% each
+          } else if (status === 'running' && agentStatuses[agentKey] === 'pending') {
+            // When an agent starts, add a small progress increment
+            setOverallProgress(prev => {
+              // Add 5% progress when an agent starts working
+              return Math.min(100, prev + 5);
+            });
+          }
+        }
+        
+        // If we receive progress information directly, use it
+        if (data.type === 'progress_update' && data.progress) {
+          // Update agent progress directly from backend data
+          setAgentStatuses(prev => {
+            const newStatuses = {...prev};
             
-            // Check which agent completed
-            const agentMatch = data.message.match(/Agent: ([\\w\\s]+)/);
-            if (agentMatch) {
-              const agentName = agentMatch[1].trim();
-              // Map the agent name to our state keys
-              const agentKey = 
-                agentName.toLowerCase().includes('planning') || agentName.toLowerCase().includes('architect') ? 'planner' : 
-                agentName.toLowerCase().includes('front') ? 'frontend' : 
-                agentName.toLowerCase().includes('back') ? 'backend' : 
-                agentName.toLowerCase().includes('quality') || agentName.toLowerCase().includes('qa') ? 'tester' : 
-                agentName.toLowerCase().includes('devops') ? 'deployment' : null;
-                
-              if (agentKey) {
-                // Update agent status to completed
-                setAgentStatuses(prev => ({
-                  ...prev, 
-                  [agentKey]: 'completed'
-                }));
+            // Update status for each agent based on progress
+            Object.entries(data.progress).forEach(([agent, progress]) => {
+              if (progress >= 100) {
+                newStatuses[agent] = 'completed';
+              } else if (progress > 0) {
+                newStatuses[agent] = 'running';
               }
-            }
-          }
-          
-          // Detect Final Answer sections which contain code
-          if (data.message.includes('## Final Answer:')) {
-            setCurrentStep('generating');
-          }
-          
-          // Detect Crew Completion message
-          if (data.message.includes('Crew Execution Completed') || data.message.includes('Crew Completion')) {
-            console.log('Crew execution completed, fetching results...');
-            setTerminalOutput(prev => [...prev, { type: 'success', content: 'CrewAI execution completed successfully! Loading results...' }]);
-            
-            // Set all agents to completed state
-            setAgentStatuses({
-              planner: 'completed',
-              backend: 'completed',
-              frontend: 'completed',
-              tester: 'completed',
-              deployment: 'completed'
             });
             
-            // Set progress to 100%
-            setOverallProgress(100);
-            
-            // Immediately fetch the results instead of waiting for the next poll interval
-            axios.get(`/api/jobs/${jobId}`)
-              .then(response => {
-                if (response.data.status === 'completed' || response.data.results) {
-                  setResults(response.data.results);
-                  if (response.data.results && response.data.results.requirements) {
-                    setRequirements(response.data.results.requirements);
-                  }
-                  
-                  // Keep isProcessing true until we actually show the results
-                  // This prevents redirecting to the first page
-                  setTimeout(() => {
-                    setIsProcessing(false);
-                    setCurrentStep('completed');
-                    setActiveTab('code'); // Show code tab by default
-                  }, 1000);
+            return newStatuses;
+          });
+          
+          // Calculate overall progress from agent progress values
+          const weights = {
+            planner: 0.25,
+            backend: 0.25,
+            frontend: 0.25,
+            tester: 0.15,
+            deployment: 0.10
+          };
+          
+          let totalProgress = 0;
+          Object.entries(data.progress).forEach(([agent, progress]) => {
+            totalProgress += progress * weights[agent];
+          });
+          
+          setOverallProgress(Math.min(100, Math.round(totalProgress)));
+        }
+        
+        // Check for job completion message
+        if (data.message && data.message.includes('Job completed')) {
+          // Update all agent statuses to completed
+          setAgentStatuses({
+            planner: 'completed',
+            backend: 'completed',
+            frontend: 'completed',
+            tester: 'completed',
+            deployment: 'completed'
+          });
+          
+          // Set progress to 100%
+          setOverallProgress(100);
+          
+          // Immediately fetch the results instead of waiting for the next poll interval
+          axios.get(`/api/jobs/${jobId}`)
+            .then(response => {
+              if (response.data.status === 'completed' || response.data.results) {
+                setResults(response.data.results);
+                if (response.data.results && response.data.results.requirements) {
+                  setRequirements(response.data.results.requirements);
                 }
-              })
-              .catch(error => {
-                console.error('Error fetching results after completion:', error);
-                // Even if there's an error, we should stop processing
-                setIsProcessing(false);
-              });
-          }
+                
+                // Keep isProcessing true until we actually show the results
+                // This prevents redirecting to the first page
+                setTimeout(() => {
+                  setIsProcessing(false);
+                  setCurrentStep('completed');
+                  setActiveTab('code'); // Show code tab by default
+                }, 1000);
+              }
+            })
+            .catch(error => {
+              console.error('Error fetching results after completion:', error);
+              // Even if there's an error, we should stop processing
+              setIsProcessing(false);
+            });
+        }
+        
+        // Handle task completion messages
+        if (data.message && (
+          data.message.includes('Task Completed') || 
+          data.message.includes('Completed:') ||
+          (data.status === 'completed' && data.message.includes('task'))
+        )) {
+          // Add a properly formatted message to the terminal
+          setTerminalOutput(prev => [
+            ...prev,
+            {
+              type: 'success',
+              content: `✅ ${data.agent || 'Agent'} completed a task: ${data.message.split(':').pop() || 'Task completed'}`,
+              timestamp: data.timestamp || new Date().toISOString()
+            }
+          ]);
         }
       };
       
@@ -614,6 +660,105 @@ const HomePage = () => {
       }
     };
   }, [jobId, isProcessing]);
+  
+  // Set up periodic progress updates via WebSocket
+  useEffect(() => {
+    if (jobId && isProcessing && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      // Request progress updates every 3 seconds
+      const progressInterval = setInterval(() => {
+        try {
+          wsRef.current.send(JSON.stringify({
+            type: "request_progress"
+          }));
+          
+          // Also request all logs periodically to ensure we have everything
+          wsRef.current.send(JSON.stringify({
+            type: "request_logs"
+          }));
+        } catch (e) {
+          console.error('Error sending WebSocket request:', e);
+        }
+      }, 3000);
+      
+      return () => clearInterval(progressInterval);
+    }
+  }, [jobId, isProcessing, wsRef.current]);
+  
+  // Manually check for task completion in logs
+  useEffect(() => {
+    if (!logs || logs.length === 0) return;
+    
+    // Look for task completion messages in the latest logs
+    const latestLogs = logs.slice(-5); // Check the last 5 logs
+    
+    latestLogs.forEach(log => {
+      if (!log.message) return;
+      
+      // Extract agent and task completion information
+      const isCompleted = log.message.includes('Completed') || 
+                         log.message.includes('completed') ||
+                         log.status === 'completed';
+                         
+      if (isCompleted) {
+        // Try to determine which agent this belongs to
+        let agentKey = null;
+        
+        if (log.agent) {
+          const agentName = log.agent.toLowerCase();
+          if (agentName.includes('planning') || agentName.includes('architect')) {
+            agentKey = 'planner';
+          } else if (agentName.includes('front')) {
+            agentKey = 'frontend';
+          } else if (agentName.includes('back')) {
+            agentKey = 'backend';
+          } else if (agentName.includes('quality') || agentName.includes('qa') || agentName.includes('test')) {
+            agentKey = 'tester';
+          } else if (agentName.includes('devops') || agentName.includes('deploy')) {
+            agentKey = 'deployment';
+          }
+        } else if (log.message.includes('Agent:')) {
+          // Try to extract agent from message
+          const agentMatch = log.message.match(/Agent:\s+([\w\s]+)/i);
+          if (agentMatch) {
+            const agentName = agentMatch[1].trim().toLowerCase();
+            if (agentName.includes('planning') || agentName.includes('architect')) {
+              agentKey = 'planner';
+            } else if (agentName.includes('front')) {
+              agentKey = 'frontend';
+            } else if (agentName.includes('back')) {
+              agentKey = 'backend';
+            } else if (agentName.includes('quality') || agentName.includes('qa') || agentName.includes('test')) {
+              agentKey = 'tester';
+            } else if (agentName.includes('devops') || agentName.includes('deploy')) {
+              agentKey = 'deployment';
+            }
+          }
+        }
+        
+        // Update agent status if we identified one
+        if (agentKey) {
+          setAgentStatuses(prev => ({
+            ...prev,
+            [agentKey]: 'completed'
+          }));
+          
+          // Update progress
+          setOverallProgress(prev => {
+            // Calculate how much to add based on agent weight
+            const weights = {
+              'planner': 25,
+              'backend': 25,
+              'frontend': 25,
+              'tester': 15,
+              'deployment': 10
+            };
+            
+            return Math.min(100, prev + weights[agentKey]);
+          });
+        }
+      }
+    });
+  }, [logs]);
   
   // Handle form submission
   const handleSubmit = (promptValue) => {
@@ -879,19 +1024,6 @@ const HomePage = () => {
                   </span>
                 )}
               </button>
-              
-              {/* Download button in tab bar */}
-              <div className="ml-auto">
-                <button
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1 rounded flex items-center"
-                  onClick={handleDownloadCode}
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                  </svg>
-                  Download
-                </button>
-              </div>
             </div>
             
             {/* Requirements Analysis Display */}

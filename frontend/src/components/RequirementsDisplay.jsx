@@ -2,7 +2,16 @@ import React from 'react';
 import { motion } from 'framer-motion';
 
 const RequirementsDisplay = ({ requirements, isVisible = false }) => {
-  if (!requirements || !isVisible) {
+  // Display loading state if requirements is null/undefined
+  if (!requirements) {
+    return (
+      <div className="flex items-center justify-center h-full bg-white rounded-lg p-8">
+        <p className="text-gray-500">No requirements analysis available.</p>
+      </div>
+    );
+  }
+
+  if (!isVisible) {
     return null;
   }
 
@@ -77,17 +86,15 @@ const RequirementsDisplay = ({ requirements, isVisible = false }) => {
             {section.title}
           </h3>
           
-          {section.type === 'list' && (
+          {Array.isArray(section.content) ? (
             <ul className="list-disc pl-5 space-y-1">
-              {section.items.map((item, itemIndex) => (
+              {section.content.map((item, itemIndex) => (
                 <li key={itemIndex} className="text-gray-700">
                   {item}
                 </li>
               ))}
             </ul>
-          )}
-          
-          {section.type === 'text' && (
+          ) : (
             <p className="text-gray-700">
               {section.content}
             </p>

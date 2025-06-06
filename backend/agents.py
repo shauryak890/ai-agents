@@ -3,7 +3,7 @@ import ollama
 import logging
 
 # Import config to check if we're using mock data
-from config import USE_MOCK_DATA, OLLAMA_MODEL, OLLAMA_HOST
+from config import USE_MOCK_DATA, OLLAMA_MODEL, OLLAMA_HOST, OLLAMA_TIMEOUT, AGENT_MODELS, AGENT_TIMEOUTS
 
 # Import crewai only if not using mock data
 if not USE_MOCK_DATA:
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class AgentSystem:
     """Manages the AI agent system for app generation"""
     
-    def __init__(self, llm_name="phi3"):
+    def __init__(self, llm_name="wizardcoder"):
         """Initialize the agent system with specified LLM"""
         self.llm_name = llm_name
         self.agents = self._create_agents()
@@ -40,19 +40,20 @@ class AgentSystem:
         """Create the planning agent that designs application architecture"""
         # Use a compatible configuration for Ollama with LiteLLM
         llm = {
-            "model": f"ollama/{self.llm_name}",
+            "model": f"ollama/{AGENT_MODELS['planner']}",
             "api_base": OLLAMA_HOST,
             "config": {
-                "context_window": 8192,  # Adjust based on model capabilities
+                "context_window": 16384,  # Increased for WizardCoder's larger context window
                 "tool_system": False,    # Disable tool system to avoid compatibility issues
-                "seed": 42               # For consistent results
+                "seed": 42,              # For consistent results
+                "timeout": AGENT_TIMEOUTS["planner"]  # Use planner-specific timeout
             }
         }
         
         return Agent(
             role="Planning Architect",
             goal="Create a detailed plan for the application based on user requirements",
-            backstory="You are an expert systems architect who breaks down app ideas into clear, achievable plans. You analyze requirements and create detailed specifications.",
+            backstory="You are an expert systems architect who breaks down app ideas into clear, achievable plans. You analyze requirements and create detailed specifications. Always provide complete, detailed plans with concrete implementation details, not just placeholders or JSON structures.",
             verbose=True,
             allow_delegation=False,
             llm=llm
@@ -62,19 +63,20 @@ class AgentSystem:
         """Create the frontend developer agent"""
         # Use a compatible configuration for Ollama with LiteLLM
         llm = {
-            "model": f"ollama/{self.llm_name}",
+            "model": f"ollama/{AGENT_MODELS['frontend']}",
             "api_base": OLLAMA_HOST,
             "config": {
-                "context_window": 8192,  # Adjust based on model capabilities
+                "context_window": 16384,  # Increased for WizardCoder's larger context window
                 "tool_system": False,    # Disable tool system to avoid compatibility issues
-                "seed": 42               # For consistent results
+                "seed": 42,              # For consistent results
+                "timeout": AGENT_TIMEOUTS["frontend"]  # Use frontend-specific timeout
             }
         }
         
         return Agent(
             role="Frontend Developer",
             goal="Create beautiful, responsive, and user-friendly frontend code",
-            backstory="You are a skilled frontend developer who creates engaging user interfaces with React and modern CSS.",
+            backstory="You are a skilled frontend developer who creates engaging user interfaces with React and modern CSS. You always provide complete, executable code files with full implementations, not just placeholders or JSON structures. Never use placeholders like '[...]' in your code.",
             verbose=True,
             allow_delegation=False,
             llm=llm
@@ -84,19 +86,20 @@ class AgentSystem:
         """Create the backend developer agent"""
         # Use a compatible configuration for Ollama with LiteLLM
         llm = {
-            "model": f"ollama/{self.llm_name}",
+            "model": f"ollama/{AGENT_MODELS['backend']}",
             "api_base": OLLAMA_HOST,
             "config": {
-                "context_window": 8192,  # Adjust based on model capabilities
+                "context_window": 16384,  # Increased for WizardCoder's larger context window
                 "tool_system": False,    # Disable tool system to avoid compatibility issues
-                "seed": 42               # For consistent results
+                "seed": 42,              # For consistent results
+                "timeout": AGENT_TIMEOUTS["backend"]  # Use backend-specific timeout
             }
         }
         
         return Agent(
             role="Backend Engineer",
             goal="Create robust, scalable backend systems",
-            backstory="You are an expert backend developer who creates secure, efficient APIs and server-side logic.",
+            backstory="You are an expert backend developer who creates secure, efficient APIs and server-side logic. You always provide complete, executable code files with full implementations, not just placeholders or JSON structures. Never use placeholders like '[...]' in your code.",
             verbose=True,
             allow_delegation=False,
             llm=llm
@@ -106,19 +109,20 @@ class AgentSystem:
         """Create the QA tester agent"""
         # Use a compatible configuration for Ollama with LiteLLM
         llm = {
-            "model": f"ollama/{self.llm_name}",
+            "model": f"ollama/{AGENT_MODELS['tester']}",
             "api_base": OLLAMA_HOST,
             "config": {
-                "context_window": 8192,  # Adjust based on model capabilities
+                "context_window": 16384,  # Increased for WizardCoder's larger context window
                 "tool_system": False,    # Disable tool system to avoid compatibility issues
-                "seed": 42               # For consistent results
+                "seed": 42,              # For consistent results
+                "timeout": AGENT_TIMEOUTS["tester"]  # Use tester-specific timeout
             }
         }
         
         return Agent(
             role="Quality Assurance Engineer",
             goal="Ensure code quality and identify potential issues",
-            backstory="You are a thorough QA professional who tests applications to find bugs and performance issues before users do.",
+            backstory="You are a thorough QA professional who tests applications to find bugs and performance issues before users do. You always provide complete, executable test files with full implementations, not just placeholders or JSON structures. Never use placeholders like '[...]' in your code.",
             verbose=True,
             allow_delegation=False,
             llm=llm
@@ -128,19 +132,20 @@ class AgentSystem:
         """Create the deployment specialist agent"""
         # Use a compatible configuration for Ollama with LiteLLM
         llm = {
-            "model": f"ollama/{self.llm_name}",
+            "model": f"ollama/{AGENT_MODELS['deployment']}",
             "api_base": OLLAMA_HOST,
             "config": {
-                "context_window": 8192,  # Adjust based on model capabilities
+                "context_window": 16384,  # Increased for WizardCoder's larger context window
                 "tool_system": False,    # Disable tool system to avoid compatibility issues
-                "seed": 42               # For consistent results
+                "seed": 42,              # For consistent results
+                "timeout": AGENT_TIMEOUTS["deployment"]  # Use deployment-specific timeout
             }
         }
         
         return Agent(
             role="DevOps Engineer",
             goal="Create deployment instructions and configuration for easy application deployment",
-            backstory="You are a DevOps engineer who specializes in creating smooth deployment workflows and documentation.",
+            backstory="You are a DevOps engineer who specializes in creating smooth deployment workflows and documentation. You always provide complete, executable configuration files with full implementations, not just placeholders or JSON structures. Never use placeholders like '[...]' in your code.",
             verbose=True,
             allow_delegation=False,
             llm=llm
@@ -152,39 +157,39 @@ class AgentSystem:
         
         # Planner task
         tasks["planner"] = Task(
-            description=f"Analyze the following app idea and create a detailed plan: {prompt}",
-            expected_output="A JSON object with 'features', 'architecture', 'tech_stack', and 'timeline' fields",
+            description=f"Analyze the following app idea and create a detailed plan for a messaging application: {prompt}\n\nProvide a complete, detailed plan with concrete implementation details. Include specific API endpoints, data models, and component structures. Focus on code architecture and implementation patterns.",
+            expected_output="A detailed plan with features, architecture, tech stack, and timeline. Provide concrete implementation details, not just placeholders.",
             agent=self.agents["planner"]
         )
         
         # Backend task
         tasks["backend"] = Task(
-            description="Create FastAPI backend code based on the planning document",
-            expected_output="A JSON object with 'endpoints', 'models', 'database', and 'requirements' fields",
+            description="Create complete, functional FastAPI backend code for a messaging application based on the planning document. Include all necessary files with full implementations, not just placeholders or JSON structures. Focus on real-time messaging capabilities, user authentication, and data storage.",
+            expected_output="Complete, executable code files for the backend. Include main.py, models.py, database.py, and any other necessary files with full implementations. Do NOT use placeholders like '[...]' in your code.",
             agent=self.agents["backend"],
             context=[tasks["planner"]]
         )
         
         # Frontend task
         tasks["frontend"] = Task(
-            description="Create React components with Tailwind CSS based on the planning document and backend API",
-            expected_output="A JSON object with 'components', 'styles', 'routing', and 'package_json' fields",
+            description="Create complete, functional React components with Tailwind CSS for a messaging application based on the planning document and backend API. Include all necessary files with full implementations, not just placeholders or JSON structures. Focus on the chat interface, message display, and real-time updates.",
+            expected_output="Complete, executable React component files. Include App.jsx, component files, and any other necessary files with full implementations. Do NOT use placeholders like '[...]' in your code.",
             agent=self.agents["frontend"],
             context=[tasks["planner"], tasks["backend"]]
         )
         
         # Testing task
         tasks["tester"] = Task(
-            description="Write tests for the backend and frontend code",
-            expected_output="A JSON object with 'backend_tests', 'frontend_tests', and 'integration_tests' fields",
+            description="Write complete, functional tests for the backend and frontend code of the messaging application. Include all necessary test files with full implementations, not just placeholders or JSON structures. Focus on testing real-time communication, message delivery, and user authentication.",
+            expected_output="Complete, executable test files for both backend and frontend. Include actual test implementations, not placeholders like '[...]' in your code.",
             agent=self.agents["tester"],
             context=[tasks["backend"], tasks["frontend"]]
         )
         
         # Deployment task
         tasks["deployment"] = Task(
-            description="Create deployment configuration for the application",
-            expected_output="A JSON object with 'docker', 'deploy', 'env', and 'readme' fields",
+            description="Create complete deployment configuration for the messaging application. Include all necessary files with full implementations, not just placeholders or JSON structures. Focus on containerization, database setup, and WebSocket configuration for real-time messaging.",
+            expected_output="Complete, executable deployment files including Dockerfile, docker-compose.yml, and any other necessary files with full implementations. Do NOT use placeholders like '[...]' in your code.",
             agent=self.agents["deployment"],
             context=[tasks["backend"], tasks["frontend"], tasks["tester"]]
         )

@@ -4,6 +4,7 @@ from typing import Dict, List, Any, Optional
 import ollama
 from tenacity import retry, stop_after_attempt, wait_exponential
 import logging
+from config import AGENT_MODELS, AGENT_TIMEOUTS  # Import from config
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -18,11 +19,16 @@ class PromptAnalyzer:
     def __init__(self):
         """Initialize the prompt analyzer to use local Ollama LLM."""
         # No API key needed for Ollama as it runs locally
+        # Get the analyzer-specific model and timeout
+        self.model = AGENT_MODELS["analyzer"]
+        self.timeout = AGENT_TIMEOUTS["analyzer"]
+        
         # Check if Ollama is available
         try:
             # Just a simple test to see if Ollama is responding
             ollama.list()
             logger.info("Ollama is available and responding")
+            logger.info(f"Using Ollama model for analyzer: {self.model} with timeout: {self.timeout}s")
         except Exception as e:
             logger.warning(f"Ollama might not be running or accessible: {e}")
             # We don't raise here to allow fallback behavior
@@ -34,14 +40,14 @@ class PromptAnalyzer:
             # Format the prompt for Ollama
             combined_prompt = f"System: {system_prompt}\n\nUser: {user_prompt}"
             
-            # Call Ollama - using the model that best matches GPT-4 capabilities
-            # Users can change this to any model they have pulled in Ollama
+            # Call Ollama - using the model from config
             response = ollama.generate(
-                model="phi3",  # or another model like "mistral" or "llama2" that's available locally
+                model=self.model,  # Use analyzer-specific model
                 prompt=combined_prompt,
                 options={
                     "temperature": 0.7,
-                    "num_predict": 2000  # similar to max_tokens
+                    "num_predict": 2000,  # similar to max_tokens
+                    "timeout": self.timeout  # Use analyzer-specific timeout
                 }
             )
             return response['response']

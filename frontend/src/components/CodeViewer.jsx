@@ -88,6 +88,19 @@ const CodeViewer = ({ results, onDownload }) => {
           Object.entries(results[section].code).forEach(([filename, content]) => {
             extractedFiles[`${section}/${filename}`] = content;
           });
+        } else {
+          // Handle case where section contains direct filename/content pairs
+          Object.entries(results[section]).forEach(([key, value]) => {
+            if (typeof value === 'string' && key.includes('.')) {
+              extractedFiles[`${section}/${key}`] = value;
+            } else if (typeof value === 'object') {
+              Object.entries(value).forEach(([subKey, subValue]) => {
+                if (typeof subValue === 'string' && subKey.includes('.')) {
+                  extractedFiles[`${section}/${key}/${subKey}`] = subValue;
+                }
+              });
+            }
+          });
         }
       }
     });
@@ -95,6 +108,15 @@ const CodeViewer = ({ results, onDownload }) => {
     if (foundSections && Object.keys(extractedFiles).length > 0) {
       console.log('Found section-based code');
       return extractedFiles;
+    }
+    
+    // If there's a raw_output field with code blocks, extract them
+    if (results.raw_output && typeof results.raw_output === 'string') {
+      const codeBlocks = extractCodeBlocksFromMarkdown(results.raw_output);
+      if (Object.keys(codeBlocks).length > 0) {
+        console.log('Extracted code blocks from raw_output');
+        return codeBlocks;
+      }
     }
     
     // Look for any keys that seem like filenames
@@ -125,6 +147,53 @@ const CodeViewer = ({ results, onDownload }) => {
     
     console.log('No code files found in results', results);
     return {};
+  }
+  
+  // Helper function to extract code blocks from markdown
+  function extractCodeBlocksFromMarkdown(markdown) {
+    const files = {};
+    let fileCounter = 1;
+    
+    // Match code blocks with language specification
+    const codeBlockRegex = /```(\w+)\n([\s\S]*?)```/g;
+    let match;
+    
+    while ((match = codeBlockRegex.exec(markdown)) !== null) {
+      const language = match[1];
+      const code = match[2].trim();
+      
+      // Determine filename based on language
+      let filename;
+      switch (language) {
+        case 'javascript':
+        case 'js':
+          filename = `script${fileCounter}.js`;
+          break;
+        case 'jsx':
+          filename = `component${fileCounter}.jsx`;
+          break;
+        case 'python':
+        case 'py':
+          filename = `script${fileCounter}.py`;
+          break;
+        case 'html':
+          filename = `page${fileCounter}.html`;
+          break;
+        case 'css':
+          filename = `styles${fileCounter}.css`;
+          break;
+        case 'json':
+          filename = `data${fileCounter}.json`;
+          break;
+        default:
+          filename = `file${fileCounter}.${language || 'txt'}`;
+      }
+      
+      files[filename] = code;
+      fileCounter++;
+    }
+    
+    return files;
   }
 
   // Render the file viewer

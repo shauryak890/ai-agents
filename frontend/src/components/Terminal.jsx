@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { X, Minimize2, Maximize2 } from 'lucide-react';
+import { X, Minimize2, Maximize2, Terminal as TerminalIcon } from 'lucide-react';
 
 const Terminal = ({ logs = [], terminalOutput = [], isVisible = false, onClose = () => {} }) => {
   const terminalRef = useRef(null);
@@ -8,6 +8,7 @@ const Terminal = ({ logs = [], terminalOutput = [], isVisible = false, onClose =
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isMinimized, setIsMinimized] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
+  const [groupedLogs, setGroupedLogs] = useState({});
   
   // Auto-scroll to bottom when new logs come in
   useEffect(() => {
@@ -16,7 +17,7 @@ const Terminal = ({ logs = [], terminalOutput = [], isVisible = false, onClose =
     }
   }, [animated, isVisible, terminalOutput, isMinimized]);
 
-  // Animate logs appearing one by one for a more realistic terminal effect
+  // Process and group logs by task/agent for better readability
   useEffect(() => {
     const combinedLogs = [...logs, ...terminalOutput.map(item => ({
       message: item.content,
@@ -24,11 +25,42 @@ const Terminal = ({ logs = [], terminalOutput = [], isVisible = false, onClose =
       timestamp: new Date().toISOString()
     }))];
     
+    // Group logs by task ID or agent
+    const groups = {};
+    
+    combinedLogs.forEach(log => {
+      if (!log.message) return;
+      
+      // Try to extract task ID
+      const taskIdMatch = log.message.match(/Task: ([0-9a-f-]+)/i);
+      const agentMatch = log.message.match(/Agent: ([\w\s]+)/i) || 
+                         log.message.match(/# Agent: ([\w\s]+)/i);
+      
+      let groupKey = 'system';
+      
+      if (taskIdMatch) {
+        groupKey = `task-${taskIdMatch[1].substring(0, 8)}`;
+      } else if (agentMatch) {
+        groupKey = `agent-${agentMatch[1].trim().toLowerCase().replace(/\s+/g, '-')}`;
+      } else if (log.agent) {
+        groupKey = `agent-${log.agent.toLowerCase().replace(/\s+/g, '-')}`;
+      }
+      
+      if (!groups[groupKey]) {
+        groups[groupKey] = [];
+      }
+      
+      groups[groupKey].push(log);
+    });
+    
+    setGroupedLogs(groups);
+    
+    // Still animate logs appearing one by one for a more realistic terminal effect
     if (combinedLogs.length > currentIndex && isVisible) {
       const timer = setTimeout(() => {
         setAnimated(prev => [...prev, combinedLogs[currentIndex]]);
         setCurrentIndex(currentIndex + 1);
-      }, 50); // Faster animation
+      }, 20); // Even faster animation
       
       return () => clearTimeout(timer);
     }
@@ -43,9 +75,16 @@ const Terminal = ({ logs = [], terminalOutput = [], isVisible = false, onClose =
     // First check for specific log types
     if (log.type === 'error') return 'text-red-400';
     if (log.type === 'info') return 'text-blue-400';
+    if (log.type === 'success') return 'text-green-400';
+    if (log.type === 'warning') return 'text-yellow-400';
     
     // For CrewAI specific messages
     if (log.message) {
+      // Task status messages
+      if (log.message.includes('Task Completed') || log.message.includes('Completed:')) return 'text-green-300 font-bold';
+      if (log.message.includes('Task:') && log.message.includes('Status:')) return 'text-blue-300';
+      
+      // Agent-specific coloring
       if (log.message.includes('Planning Architect')) return 'text-green-400';
       if (log.message.includes('Backend Engineer')) return 'text-yellow-400';
       if (log.message.includes('Frontend Developer')) return 'text-purple-400';
@@ -57,6 +96,12 @@ const Terminal = ({ logs = [], terminalOutput = [], isVisible = false, onClose =
       if (log.message.includes('Executing Task')) return 'text-blue-300';
       if (log.message.includes('Thinking')) return 'text-amber-300';
       
+      // CrewAI specific patterns
+      if (log.message.includes('🚀 Crew:')) return 'text-purple-500 font-bold';
+      if (log.message.includes('📋 Task:')) return 'text-blue-400';
+      if (log.message.includes('Assigned to:')) return 'text-yellow-400';
+      if (log.message.includes('Status: ✅')) return 'text-green-500';
+      
       // Headers and important sections
       if (log.message.startsWith('#')) return 'text-blue-500 font-bold';
       if (log.message.startsWith('## Final Answer')) return 'text-green-500 font-bold';
@@ -67,6 +112,17 @@ const Terminal = ({ logs = [], terminalOutput = [], isVisible = false, onClose =
     // Fall back to agent-based coloring if available
     if (log.agent) {
       switch (log.agent) {
+        case 'Planning Architect':
+          return 'text-green-400';
+        case 'Backend Engineer':
+          return 'text-yellow-400';
+        case 'Frontend Developer':
+          return 'text-purple-400';
+        case 'Quality Assurance Engineer':
+        case 'QA Engineer':
+          return 'text-pink-400';
+        case 'DevOps Engineer':
+          return 'text-cyan-400';
         case 'Prompt Analyzer':
           return 'text-blue-400';
         case 'System':
@@ -117,9 +173,79 @@ const Terminal = ({ logs = [], terminalOutput = [], isVisible = false, onClose =
       });
     }
     
+    // Handle CrewAI task tree visualization
+    if (message.includes('🚀 Crew:')) {
+      return (
+        <div className="font-mono">
+          {message.split('\n').map((line, i) => {
+            // Style different parts of the task tree
+            if (line.includes('🚀 Crew:')) {
+              return <div key={i} className="text-purple-400 font-bold">{line}</div>;
+            } else if (line.includes('📋 Task:')) {
+              return <div key={i} className="text-blue-400 ml-2">{line}</div>;
+            } else if (line.includes('Assigned to:')) {
+              return <div key={i} className="text-yellow-400 ml-4">{line}</div>;
+            } else if (line.includes('Status: ✅')) {
+              return <div key={i} className="text-green-500 ml-4">{line}</div>;
+            } else if (line.includes('Status:')) {
+              return <div key={i} className="text-blue-400 ml-4">{line}</div>;
+            } else {
+              return <div key={i}>{line}</div>;
+            }
+          })}
+        </div>
+      );
+    }
+    
+    // Handle Task Completion boxes
+    if (message.includes('Task Completion') && message.includes('─')) {
+      return (
+        <div className="font-mono bg-gray-800 rounded border border-green-500/30 p-1 my-1">
+          {message.split('\n').map((line, i) => (
+            <div key={i} className={
+              line.includes('Task Completed') ? 'text-green-400 font-bold' : 
+              line.includes('Agent:') ? 'text-yellow-400' : ''
+            }>
+              {line}
+            </div>
+          ))}
+        </div>
+      );
+    }
+    
     // Handle special formatting for CrewAI tasks
     if (message.includes('Task:') || message.includes('Agent:')) {
       return <span className="whitespace-pre-line font-medium">{message}</span>;
+    }
+    
+    // Handle thinking states with special formatting
+    if (message.includes('Thinking...')) {
+      return (
+        <div className="flex items-center space-x-2">
+          <span className="whitespace-pre-line">{message}</span>
+          <span className="inline-block">
+            <span className="animate-pulse">.</span>
+            <span className="animate-pulse delay-100">.</span>
+            <span className="animate-pulse delay-200">.</span>
+          </span>
+        </div>
+      );
+    }
+    
+    // Handle task IDs with better formatting
+    const taskIdMatch = message.match(/Task: ([0-9a-f-]+)/i);
+    if (taskIdMatch) {
+      const beforeId = message.substring(0, message.indexOf(taskIdMatch[1]));
+      const id = taskIdMatch[1];
+      const afterId = message.substring(message.indexOf(taskIdMatch[1]) + id.length);
+      
+      return (
+        <span className="whitespace-pre-line">
+          {beforeId}
+          <span className="bg-blue-900/30 px-1 rounded font-mono text-blue-300">{id.substring(0, 8)}...</span>
+          {afterId}
+        </span>
+      );
     }
     
     return <span className="whitespace-pre-line">{message}</span>;
@@ -138,6 +264,61 @@ const Terminal = ({ logs = [], terminalOutput = [], isVisible = false, onClose =
 
   const handleClose = () => {
     onClose();
+  };
+  
+  // Group logs by agent for more organized display
+  const renderLogsByGroup = () => {
+    // Flatten logs for rendering
+    const flatLogs = [];
+    
+    // First add system logs
+    if (groupedLogs['system']) {
+      flatLogs.push(...groupedLogs['system']);
+    }
+    
+    // Then add agent logs in a specific order
+    const agentOrder = [
+      'agent-planning-architect',
+      'agent-backend-engineer',
+      'agent-frontend-developer',
+      'agent-qa-engineer',
+      'agent-devops-engineer',
+      'agent-prompt-analyzer'
+    ];
+    
+    agentOrder.forEach(agentKey => {
+      if (groupedLogs[agentKey]) {
+        flatLogs.push(...groupedLogs[agentKey]);
+      }
+    });
+    
+    // Add any remaining task logs
+    Object.keys(groupedLogs)
+      .filter(key => key.startsWith('task-') && !agentOrder.includes(key))
+      .forEach(taskKey => {
+        flatLogs.push(...groupedLogs[taskKey]);
+      });
+    
+    // Add any other logs we haven't categorized
+    Object.keys(groupedLogs)
+      .filter(key => !key.startsWith('agent-') && !key.startsWith('task-') && key !== 'system')
+      .forEach(otherKey => {
+        flatLogs.push(...groupedLogs[otherKey]);
+      });
+    
+    return flatLogs.slice(0, animated.length).map((log, index) => (
+      <div key={index} className={`mb-2 ${getMessageColor(log)}`}>
+        <div className="flex items-start">
+          <div className="text-xs text-gray-500 mr-2 mt-1 font-mono">{formatTime(log.timestamp)}</div>
+          <div className="flex-1">
+            {log.agent && (
+              <span className="font-bold mr-2">[{log.agent}]</span>
+            )}
+            {formatMessage(log.message)}
+          </div>
+        </div>
+      </div>
+    ));
   };
 
   return (
@@ -180,9 +361,7 @@ const Terminal = ({ logs = [], terminalOutput = [], isVisible = false, onClose =
         
         {/* Terminal title */}
         <div className="text-gray-300 text-sm font-semibold mx-auto flex items-center">
-          <svg className="w-4 h-4 mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-          </svg>
+          <TerminalIcon className="w-4 h-4 mr-2" />
           <span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">CrewAI Terminal</span>
         </div>
       </div>
@@ -199,107 +378,16 @@ const Terminal = ({ logs = [], terminalOutput = [], isVisible = false, onClose =
             <div className="ml-auto text-xs text-gray-500">{formatTime(new Date())}</div>
           </div>
           
-          {/* Add sample progress messages if no logs yet */}
-          {animated.length === 0 && (
-            <>
-              <motion.div 
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3 }}
-                className="mb-2 leading-relaxed py-1 border-l-2 border-blue-500/70 pl-2 bg-blue-900/20 rounded-r py-2 pr-2"
-              >
-                <span className="text-gray-500 mr-2 text-xs">[{formatTime(new Date())}]</span>
-                <span className="font-semibold text-green-400 mr-2">System:</span>
-                <span className="text-blue-300">Crew Execution Started with 5 specialized AI agents</span>
-              </motion.div>
-              
-              <motion.div 
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: 0.2 }}
-                className="mb-2 leading-relaxed py-1 border-l-2 border-blue-500/70 pl-2"
-              >
-                <span className="text-gray-500 mr-2 text-xs">[{formatTime(new Date())}]</span>
-                <span className="font-semibold text-green-400 mr-2">Planning Architect:</span>
-                <span className="text-white">Analyzing requirements and creating system architecture</span>
-              </motion.div>
-              
-              <motion.div 
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: 0.4 }}
-                className="mb-2 leading-relaxed py-1 border-l-2 border-blue-500/70 pl-2"
-              >
-                <span className="text-gray-500 mr-2 text-xs">[{formatTime(new Date())}]</span>
-                <span className="font-semibold text-yellow-400 mr-2">Backend Engineer:</span>
-                <span className="text-white">Preparing database schema and API endpoints</span>
-              </motion.div>
-            </>
-          )}
+          {/* Render logs in a more organized way */}
+          <div className="space-y-1">
+            {renderLogsByGroup()}
+          </div>
           
-          {/* Render all log entries */}
-          {animated.map((log, index) => {
-            // Determine what type of message we're showing
-            const isCrewAIMessage = log.message && (
-              log.message.includes('Agent:') || 
-              log.message.includes('Task:') || 
-              log.message.includes('Crew Execution')
-            );
-            
-            const isHeaderMessage = log.message && 
-              (log.message.startsWith('#') || log.message.includes('Crew Execution Started'));
-
-            const isCompletedMessage = log.message && 
-              (log.message.includes('Completed') || log.message.includes('Task Completion'));
-            
-            const isSystemMessage = log.type === 'info' || log.type === 'error';
-            
-            return (
-              <motion.div 
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3 }}
-                key={index} 
-                className={`mb-2 leading-relaxed py-1 ${isCrewAIMessage ? 'border-l-2 border-blue-500/70 pl-2' : ''}
-                  ${isHeaderMessage ? 'bg-blue-900/20 rounded-r py-2 pr-2' : ''}
-                  ${isCompletedMessage ? 'bg-green-900/20 rounded-r py-2 pr-2' : ''}
-                `}
-              >
-                {/* Timestamp */}
-                <span className="text-gray-500 mr-2 text-xs">[{formatTime(log.timestamp)}]</span>
-                
-                {/* Agent name or message type label */}
-                {log.agent && (
-                  <span className={`font-semibold ${getMessageColor(log)} mr-2`}>{log.agent}:</span>
-                )}
-                
-                {isSystemMessage && (
-                  <span className={`font-medium px-1.5 py-0.5 rounded text-xs mr-2 ${
-                    log.type === 'error' ? 'bg-red-900/30 text-red-400' : 'bg-blue-900/30 text-blue-400'
-                  }`}>
-                    {log.type === 'error' ? 'ERROR' : 'SYSTEM'}
-                  </span>
-                )}
-                
-                {/* Formatted message content */}
-                <span className={`${getMessageColor(log)}`}>
-                  {formatMessage(log.message)}
-                </span>
-              </motion.div>
-            );
-          })}
-          
-          {/* Show waiting message or prompt cursor */}
-          {isVisible && animated.length === 0 && (
-            <div className="text-gray-500">Waiting for CrewAI agent activity...</div>
-          )}
-          
-          {isVisible && animated.length > 0 && (
-            <div className="inline-block mt-1">
-              <span className="text-green-400">$</span>
-              <span className="ml-1 animate-pulse">_</span>
-            </div>
-          )}
+          {/* Active cursor */}
+          <div className="flex items-center mt-3 animate-pulse">
+            <div className="text-green-400 mr-2">$</div>
+            <div className="w-2 h-4 bg-green-400"></div>
+          </div>
         </div>
       )}
     </motion.div>
